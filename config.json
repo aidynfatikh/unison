@@ -48,6 +48,15 @@
     "language": "English",
     "backfill_days": 7
   },
+  "kb": {
+    "auto": true,
+    "model": "haiku",
+    "active_days": 30,
+    "min_hours": 3
+  },
+  "ask": {
+    "model": "sonnet"
+  },
   "notify": {
     "enabled": true,
     "hour": 9,

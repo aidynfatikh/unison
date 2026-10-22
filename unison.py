@@ -13,11 +13,14 @@ buckets (Forte, Uni, ArqaMed, ZAP, ...). Standard library only.
   unison due <id> <when|none>   set/clear deadline (fri 18:00, tmr, 30.10)
   unison rename <id> <title>
   unison summary [day] [bucket] Claude-written summary (day: yesterday, mon, 21.10, ...)
+  unison note <text> [@bucket] [+project]   add a note to a knowledge page (defaults to this folder's project)
+  unison kb ls | search <q> | read <project|@bucket> | refresh [project|--all]
   unison hook-session-start     Claude Code SessionStart hook (reads JSON on stdin)
 """
 import fnmatch
 import hashlib
 import json
+import queue
 import os
 import re
 import shutil
@@ -493,6 +496,8 @@ def scan_sessions(con):
             continue
         if st.st_mtime >= cutoff:
             s = parse_session(f)
+            if s and s["cwd"].startswith(str(DATA)):
+                s = None  # Unison's own command-bar sessions
             if s:
                 bucket, project = classify(s["cwd"])
                 con.execute(
@@ -621,6 +626,7 @@ def scan():
             c = scan_commits(con)
             reclassify(con)
             link_commits(con)
+            rebuild_index_soon()
             con.execute("INSERT OR REPLACE INTO meta VALUES ('scanned_at', ?)", (str(time.time()),))
             con.commit()
             return {"sessions": s, "commits": c}
@@ -730,11 +736,11 @@ def gather_day(con, day, bucket):
     return "\n".join(lines)
 
 
-def run_claude(system, prompt):
+def run_claude(system, prompt, model=None):
     cfg = CFG.get("summary", {})
     exe = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude")
     r = subprocess.run(
-        [exe, "-p", "--model", cfg.get("model", "haiku"), "--no-session-persistence", "--tools", "",
+        [exe, "-p", "--model", model or cfg.get("model", "haiku"), "--no-session-persistence", "--tools", "",
          "--setting-sources", "", "--strict-mcp-config", "--no-chrome", "--system-prompt", system],
         input=prompt, capture_output=True, text=True, timeout=180, cwd=str(DATA))
     if r.returncode != 0:
@@ -820,9 +826,384 @@ def background_loop():
             scan()
             check_reminders()
             auto_summaries()
+            auto_pages()
         except Exception as e:
             print("scan error:", e, file=sys.stderr, flush=True)
         time.sleep(CFG["scan_interval_minutes"] * 60)
+
+
+# ---------------------------------------------------------------- knowledge base (markdown pages)
+
+KB = ROOT / "kb"
+AGENT_DIR = DATA / "agent"
+NOTES_H = "## Notes"
+META_RE = re.compile(r"<!--\s*unison\s+(.*?)-->")
+KB_LOCK = threading.Lock()
+
+KB_SYSTEM = (
+    "You maintain a concise living wiki page about one project for its owner, a developer. "
+    "Output ONLY these markdown sections, in this order, nothing before or after:\n"
+    "## Overview\n1-3 sentences: what it is, stack, where it runs, who it is for.\n"
+    "## Current state\n2-5 bullets describing the state as of the latest activity.\n"
+    "## Open threads\nBullets: unfinished work, next steps, blockers, things waiting on people. Drop items that are clearly done.\n"
+    "## Decisions\nBullets 'YYYY-MM-DD: decision, and why'. Keep earlier decisions unless reversed.\n"
+    "## Gotchas\nNon-obvious facts worth remembering: env vars, where credentials live (never their values), deploy quirks, useful commands.\n"
+    "## Links\nURLs, branches, PRs, doc paths that were mentioned.\n\n"
+    "Merge the new activity into the existing page: keep what is still true, update what changed, remove what is stale. "
+    "Terse bullets, no filler. Never include secrets (tokens, passwords, API keys). If a section has nothing, write '- none'. "
+    "Write in {lang}; keep product and domain terms as they are."
+)
+
+
+def slug(name):
+    return re.sub(r"[^\w.-]+", "-", name).strip("-") or "general"
+
+
+def page_path(bucket, project=None):
+    return KB / bucket / f"{slug(project) if project else '_general'}.md"
+
+
+def read_page(path):
+    """-> (meta dict, auto part, notes part)"""
+    if not path.exists():
+        return {}, "", ""
+    text = path.read_text()
+    m = META_RE.search(text)
+    meta = dict(kv.split("=", 1) for kv in m.group(1).split() if "=" in kv) if m else {}
+    body = META_RE.sub("", text, count=1)
+    body = re.sub(r"\A\s*# .*\n", "", body)  # title line
+    auto, _, notes = body.partition(NOTES_H)
+    return meta, auto.strip(), notes.strip()
+
+
+def write_page(path, bucket, project, auto, notes, updated=None):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    title = project or f"{BUCKETS.get(bucket, {}).get('name', bucket)}: general"
+    meta = f"bucket={bucket} project={slug(project) if project else '_general'} updated={int(updated or time.time())}"
+    notes = notes.strip() or "_Your own notes. Unison adds to this section but never rewrites it._"
+    path.write_text(f"# {title}\n<!-- unison {meta} -->\n\n{auto.strip()}\n\n{NOTES_H}\n\n{notes}\n")
+
+
+def kb_index():
+    pages = []
+    for p in sorted(KB.glob("*/*.md")):
+        meta, auto, notes = read_page(p)
+        first = re.search(r"## Overview\s+(.+)", auto)
+        pages.append({"path": str(p.relative_to(KB)), "bucket": p.parent.name,
+                      "project": None if p.stem == "_general" else p.stem,
+                      "title": p.read_text().split("\n", 1)[0].lstrip("# ").strip(),
+                      "updated": float(meta.get("updated", p.stat().st_mtime)),
+                      "summary": first.group(1).strip()[:200] if first else ""})
+    return pages
+
+
+def known_projects(con, days=90):
+    since = time.time() - days * 86400
+    rows = con.execute(
+        "SELECT bucket, project, MAX(t) t FROM (SELECT bucket, project, end t FROM sessions WHERE end>=? "
+        "UNION ALL SELECT bucket, project, ts t FROM commits WHERE ts>=?) GROUP BY bucket, project ORDER BY t DESC",
+        (since, since)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def resolve_project(con, name, bucket=None):
+    """Prefix/substring match of a project name (optionally within a bucket) -> (bucket, project)."""
+    n = name.lower()
+    cands = known_projects(con, 365) + [{"bucket": p["bucket"], "project": p["project"]} for p in kb_index() if p["project"]]
+    cands = [c for c in cands if not bucket or c["bucket"] == bucket]
+    for test in (lambda p: p == n, lambda p: p.startswith(n), lambda p: n in p):
+        hits = {(c["bucket"], c["project"]) for c in cands if test(c["project"].lower())}
+        if len(hits) == 1:
+            return hits.pop()
+        if hits:
+            return sorted(hits)[0]
+    return (bucket, None) if bucket else (None, None)
+
+
+def parse_note(con, text, cwd=None):
+    """'@bucket +project text' -> (bucket, project, text); defaults from cwd."""
+    bucket = project = None
+    words = []
+    for tok in text.split():
+        if tok[:1] in "@#" and len(tok) > 1 and resolve_bucket(tok[1:], prefix=True):
+            bucket = resolve_bucket(tok[1:], prefix=True)
+        elif tok.startswith("+") and len(tok) > 1:
+            project = tok[1:]
+        else:
+            words.append(tok)
+    if project:
+        b, p = resolve_project(con, project, bucket)
+        bucket, project = (b or bucket or CFG["default_bucket"]), (p or project)
+    elif not bucket and cwd:
+        bucket, project = classify(cwd)
+        if not find_repo(cwd)[0] and not any(cwd.startswith(p) for b in CFG["buckets"] for p in b["paths"]):
+            project = None
+    return bucket or CFG["default_bucket"], project, " ".join(words).strip()
+
+
+def add_note(bucket, project, text):
+    with KB_LOCK:
+        path = page_path(bucket, project)
+        meta, auto, notes = read_page(path)
+        if not auto:
+            auto = "## Overview\n_Not written yet. Unison fills this in after the next activity, or run `unison kb refresh`._"
+        if notes.startswith("_Your own notes"):
+            notes = ""
+        notes = (notes + f"\n- {date.today().isoformat()}: {text}").strip()
+        write_page(path, bucket, project, auto, notes, float(meta.get("updated", 0)) or None)
+    rebuild_index_soon()
+    return path
+
+
+def project_dir(con, bucket, project):
+    r = con.execute("SELECT repo FROM commits WHERE bucket=? AND project=? ORDER BY ts DESC LIMIT 1",
+                    (bucket, project)).fetchone()
+    if r:
+        return r[0]
+    r = con.execute("SELECT cwd FROM sessions WHERE bucket=? AND project=? ORDER BY end DESC LIMIT 1",
+                    (bucket, project)).fetchone()
+    if r:
+        return find_repo(r[0])[0] or r[0]
+    return None
+
+
+def project_activity(con, bucket, project, since):
+    lines = []
+    for s in con.execute("SELECT * FROM sessions WHERE bucket=? AND project=? AND end>=? ORDER BY start DESC LIMIT 40",
+                         (bucket, project, since)):
+        day = datetime.fromtimestamp(s["start"]).strftime("%Y-%m-%d")
+        lines.append(f"{day} SESSION ({round(s['active_min'] or 0)} min): {s['title'] or ''}")
+        if s["first_prompt"]:
+            lines.append(f"  asked: {s['first_prompt'][:400]}")
+        if s["recap"]:
+            lines.append(f"  recap: {s['recap'][:700]}")
+    for c in con.execute("SELECT ts, subject FROM commits WHERE bucket=? AND project=? AND ts>=? ORDER BY ts DESC LIMIT 60",
+                         (bucket, project, since)):
+        lines.append(f"{datetime.fromtimestamp(c['ts']).strftime('%Y-%m-%d')} COMMIT: {c['subject']}")
+    return "\n".join(lines)
+
+
+def refresh_page(bucket, project, force=False):
+    """(Re)write the auto part of a project page from activity since its last update."""
+    path = page_path(bucket, project)
+    meta, auto, notes = read_page(path)
+    updated = float(meta.get("updated", 0))
+    con = db()
+    try:
+        since = updated if (updated and not force) else time.time() - 45 * 86400
+        activity = project_activity(con, bucket, project, since)
+        if not activity and auto and not force:
+            return None
+        docs = ""
+        d = project_dir(con, bucket, project)
+        if d and (not auto or force):
+            for name in ("CLAUDE.md", "AGENTS.md", "README.md"):
+                f = Path(d) / name
+                if f.exists():
+                    docs += f"\n--- {name} ---\n{f.read_text(errors='ignore')[:4000]}\n"
+    finally:
+        con.close()
+    if not activity and not docs:
+        return None
+    prompt = (f"Project: {project} (work area: {BUCKETS[bucket]['name']})\nRepo folder: {d or 'unknown'}\n\n"
+              f"EXISTING PAGE:\n{auto or '(none yet)'}\n\n"
+              f"USER'S OWN NOTES (context only, do not repeat them):\n{notes[:3000] or '(none)'}\n\n"
+              f"NEW ACTIVITY (newest first):\n{activity[:16000] or '(none)'}\n{docs}")
+    lang = CFG.get("summary", {}).get("language", "English")
+    text = run_claude(KB_SYSTEM.format(lang=lang), prompt, model=CFG.get("kb", {}).get("model", "haiku"))
+    text = text[text.find("## "):] if "## " in text else text
+    with KB_LOCK:
+        _, _, notes_now = read_page(path)  # keep notes added meanwhile
+        write_page(path, bucket, project, text, notes_now or notes)
+    return path
+
+
+def auto_pages():
+    """Refresh pages of projects that had activity since their page was written (after a quiet period)."""
+    cfg = CFG.get("kb", {})
+    if not cfg.get("auto", True):
+        return
+    con = db()
+    try:
+        projects = known_projects(con, cfg.get("active_days", 30))
+    finally:
+        con.close()
+    now = time.time()
+    todo = []
+    for p in projects:
+        meta, auto, _ = read_page(page_path(p["bucket"], p["project"]))
+        updated = float(meta.get("updated", 0))
+        if p["t"] > updated and now - p["t"] > 20 * 60 and now - updated > cfg.get("min_hours", 3) * 3600:
+            todo.append((p["bucket"], p["project"]))
+    for b, p in todo:
+        try:
+            refresh_page(b, p)
+        except Exception as e:
+            print(f"kb refresh {b}/{p} failed: {e}", file=sys.stderr, flush=True)
+    if todo:
+        rebuild_index()
+
+
+# ---------------------------------------------------------------- search (SQLite FTS5)
+
+_index_timer = None
+
+
+def rebuild_index():
+    con = db()
+    try:
+        con.execute("DROP TABLE IF EXISTS search")
+        con.execute("CREATE VIRTUAL TABLE search USING fts5(kind UNINDEXED, ref UNINDEXED, bucket UNINDEXED, "
+                    "project UNINDEXED, ts UNINDEXED, title, body, tokenize='unicode61 remove_diacritics 2')")
+        rows = []
+        for t in con.execute("SELECT * FROM tasks"):
+            rows.append(("task", str(t["id"]), t["bucket"], "", t["created"], t["title"], t["status"]))
+        for s in con.execute("SELECT * FROM sessions"):
+            rows.append(("session", s["id"], s["bucket"], s["project"], s["end"], s["title"] or "",
+                         f"{s['first_prompt'] or ''}\n{s['recap'] or ''}"))
+        for c in con.execute("SELECT * FROM commits"):
+            rows.append(("commit", c["hash"][:7], c["bucket"], c["project"], c["ts"], c["subject"], ""))
+        for m in con.execute("SELECT * FROM summaries"):
+            rows.append(("summary", m["day"], m["bucket"], "", day_bounds(m["day"])[0], f"Summary {m['day']}", m["text"]))
+        for p in kb_index():
+            rows.append(("page", p["path"], p["bucket"], p["project"] or "", p["updated"], p["title"],
+                         (KB / p["path"]).read_text()))
+        con.executemany("INSERT INTO search VALUES (?,?,?,?,?,?,?)", rows)
+        con.commit()
+    finally:
+        con.close()
+
+
+def rebuild_index_soon():
+    global _index_timer
+    if _index_timer:
+        _index_timer.cancel()
+    _index_timer = threading.Timer(1.0, rebuild_index)
+    _index_timer.daemon = True
+    _index_timer.start()
+
+
+def search(q, limit=30):
+    terms = re.findall(r"\w+", q, flags=re.UNICODE)
+    if not terms:
+        return []
+    fts = " ".join(f'"{t}"*' for t in terms)
+    con = db()
+    try:
+        try:
+            rows = con.execute(
+                "SELECT kind, ref, bucket, project, ts, title, snippet(search, 6, '[[', ']]', '…', 14) snip "
+                "FROM search WHERE search MATCH ? ORDER BY bm25(search, 4.0, 1.0) LIMIT ?", (fts, limit)).fetchall()
+        except sqlite3.OperationalError:  # index not built yet
+            rebuild_index()
+            return search(q, limit)
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+# ---------------------------------------------------------------- Claude in the command bar
+
+AGENT_TOOLS = ["Read", "Grep", "Glob", "Bash(unison:*)", "Bash(git log:*)", "Bash(git show:*)",
+               "Bash(git status:*)", "Bash(git diff:*)", "Bash(git branch:*)", "Bash(ls:*)"]
+
+
+def agent_context():
+    con = db()
+    try:
+        now = datetime.now()
+        tasks = sorted(task_rows(con, 0), key=sort_key)
+        board = "\n".join("  " + fmt_task(t) for t in tasks if t["status"] != "done") or "  (empty)"
+        projects = known_projects(con, 60)
+        proj_lines = []
+        for p in projects[:40]:
+            d = project_dir(con, p["bucket"], p["project"])
+            proj_lines.append(f"  {BUCKETS[p['bucket']]['name']} / {p['project']}: {d or '?'}")
+        sums = con.execute("SELECT day, bucket, text FROM summaries WHERE day>=? ORDER BY day DESC",
+                           ((date.today() - timedelta(days=3)).isoformat(),)).fetchall()
+        sum_text = "\n".join(f"[{s['day']} {BUCKETS[s['bucket']]['name']}]\n{s['text']}" for s in sums) or "(none)"
+    finally:
+        con.close()
+    pages = "\n".join(f"  {KB / p['path']}  ({p['title']}, updated {datetime.fromtimestamp(p['updated']):%Y-%m-%d})"
+                      for p in kb_index()) or "  (none yet)"
+    buckets = ", ".join(f"@{b['id']} = {b['name']}" for b in CFG["buckets"])
+    return f"""You are the assistant inside Unison, the user's personal work tracker (http://unison). The user is a developer working across several jobs; they talk to you from Unison's command bar.
+Now: {now:%A %Y-%m-%d %H:%M} (local time).
+
+Answer concisely: short markdown, bullets over paragraphs, no preamble. When they ask about deadlines or what to do, use the board below and be concrete about dates.
+
+You can READ code, docs and git history in their project folders (Read/Grep/Glob, git log/show/status/diff/branch). You CANNOT edit code or run anything else, so don't try. All changes go through the `unison` CLI:
+  unison add - <<'EOF'            one task per line: <imperative 3-8 word title> [@bucket] [!due <date> [time]] [*]
+  unison done|doing|todo|pin|unpin|rm <id...>     unison due <id> <when|none>     unison rename <id> -- '<title>'
+  unison note -- '<text> @bucket +project'        add a dated note to a project's knowledge page
+  unison kb search <query>   unison kb read <project>   unison kb refresh <project>
+Due dates: today, tmr, mon..sun, +3d, 30.10, 2026-11-05; times 18:00 / 6pm after the date. Only set deadlines the user gave. Pin (*) only urgent things.
+Buckets: {buckets}. Check `unison ls` before adding to avoid duplicates. After changing anything, say in one line what you changed.
+
+OPEN TASKS (id in brackets):
+{board}
+
+PROJECTS (bucket / project: folder):
+{chr(10).join(proj_lines)}
+
+KNOWLEDGE PAGES (read them for project context; Overview / Current state / Open threads / Decisions / Gotchas / Links / Notes):
+{pages}
+
+RECENT DAILY SUMMARIES:
+{sum_text}
+"""
+
+
+def ask_stream(text, session_id=None, holder=None):
+    """Run Claude Code headless and yield simplified events as dicts."""
+    AGENT_DIR.mkdir(parents=True, exist_ok=True)
+    cfg = CFG.get("ask", {})
+    exe = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude")
+    dirs = [str(KB)] + [r for r in CFG["repo_roots"] if Path(r).is_dir()]
+    cmd = [exe, "-p", "--model", cfg.get("model", "sonnet"), "--output-format", "stream-json", "--verbose",
+           "--include-partial-messages", "--setting-sources", "", "--strict-mcp-config", "--no-chrome",
+           "--tools", "Read,Grep,Glob,Bash", "--allowedTools", *AGENT_TOOLS, "--add-dir", *dirs,
+           "--append-system-prompt", agent_context()]
+    if session_id:
+        cmd += ["--resume", session_id]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, cwd=str(AGENT_DIR), bufsize=1)
+    if holder is not None:
+        holder["proc"] = proc
+    proc.stdin.write(text)
+    proc.stdin.close()
+    try:
+        for line in proc.stdout:
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            t = d.get("type")
+            if t == "system" and d.get("subtype") == "init":
+                yield {"t": "session", "id": d.get("session_id"), "model": d.get("model")}
+            elif t == "stream_event":
+                ev = d.get("event") or {}
+                if ev.get("type") == "content_block_delta" and (ev.get("delta") or {}).get("type") == "text_delta":
+                    yield {"t": "text", "v": ev["delta"]["text"]}
+                elif ev.get("type") == "message_start":
+                    yield {"t": "turn"}
+            elif t == "assistant":
+                for c in (d.get("message") or {}).get("content", []):
+                    if c.get("type") == "tool_use":
+                        inp = c.get("input") or {}
+                        what = inp.get("command") or inp.get("file_path") or inp.get("pattern") or ""
+                        yield {"t": "tool", "name": c.get("name"), "v": str(what)[:300]}
+            elif t == "result":
+                yield {"t": "done", "session": d.get("session_id"), "error": d.get("is_error"),
+                       "cost": d.get("total_cost_usd"), "result": d.get("result") if d.get("is_error") else None}
+        proc.wait(timeout=10)
+        if proc.returncode:
+            err = proc.stderr.read()[-400:]
+            if err.strip():
+                yield {"t": "done", "error": True, "result": err.strip()}
+    finally:
+        if proc.poll() is None:
+            proc.kill()
 
 
 # ---------------------------------------------------------------- dashboard state
@@ -900,6 +1281,7 @@ def state(days=7):
             "stats": stats,
             "feed": feed[:250],
             "summaries": summaries,
+            "projects": [{"bucket": p["bucket"], "project": p["project"]} for p in known_projects(con, 120)],
             "scanned_at": float(scanned[0]) if scanned else None,
         }
     finally:
@@ -937,6 +1319,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+        elif path == "/api/kb":
+            self._json(kb_index())
+        elif path == "/api/kb/page":
+            f = self._kb_file()
+            if f is None:
+                return self._json({"error": "bad path"}, 400)
+            self._json({"path": str(f.relative_to(KB.resolve())), "content": f.read_text() if f.exists() else ""})
+        elif path == "/api/search":
+            from urllib.parse import parse_qs, urlparse
+            self._json(search(parse_qs(urlparse(self.path).query).get("q", [""])[0]))
         elif path == "/api/parse":
             from urllib.parse import parse_qs, urlparse
             q = parse_qs(urlparse(self.path).query)
@@ -963,6 +1355,30 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"id": tid, **t})
             if path == "/api/scan":
                 return self._json(scan())
+            if path == "/api/ask":
+                return self._ask(self._body())
+            if path == "/api/kb/note":
+                b = self._body()
+                con = db()
+                try:
+                    bucket, project, text = parse_note(con, b.get("text", ""))
+                finally:
+                    con.close()
+                if not text:
+                    return self._json({"error": "empty note"}, 400)
+                f = add_note(bucket, project, text)
+                return self._json({"path": str(f.relative_to(KB)), "bucket": bucket, "project": project, "text": text})
+            if path == "/api/kb/refresh":
+                b = self._body()
+                f = self._kb_file(b["path"]) if b.get("path") else None
+                if f:
+                    meta, _, _ = read_page(f)
+                    out = refresh_page(meta.get("bucket") or f.parent.name,
+                                       None if f.stem == "_general" else (meta.get("project") or f.stem), force=True)
+                else:
+                    out = auto_pages()
+                rebuild_index()
+                return self._json({"ok": True, "path": str(out.relative_to(KB)) if out else None})
             if path == "/api/summarize":
                 b = self._body()
                 day = date.fromisoformat(b.get("day") or date.today().isoformat()).isoformat()
@@ -970,6 +1386,61 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._json({"error": str(e)}, 400)
         self._json({"error": "not found"}, 404)
+
+    def _kb_file(self, rel=None):
+        if rel is None:
+            from urllib.parse import parse_qs, urlparse
+            rel = parse_qs(urlparse(self.path).query).get("path", [""])[0]
+        f = (KB / rel).resolve()
+        return f if f.suffix == ".md" and str(f).startswith(str(KB.resolve()) + "/") else None
+
+    def do_PUT(self):
+        if self.path.split("?")[0] != "/api/kb/page":
+            return self._json({"error": "not found"}, 404)
+        b = self._body()
+        f = self._kb_file(b.get("path", ""))
+        if f is None:
+            return self._json({"error": "bad path"}, 400)
+        with KB_LOCK:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(b.get("content", ""))
+        rebuild_index_soon()
+        self._json({"ok": True})
+
+    def _ask(self, b):
+        """Stream a Claude answer as server-sent events."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")  # tell nginx not to buffer
+        self.end_headers()
+        q, holder = queue.Queue(), {}
+
+        def pump():
+            try:
+                for ev in ask_stream(b.get("text", ""), b.get("session"), holder):
+                    q.put(ev)
+            except Exception as e:
+                q.put({"t": "done", "error": True, "result": str(e)})
+            q.put(None)
+
+        threading.Thread(target=pump, daemon=True).start()
+        try:
+            while True:
+                try:
+                    ev = q.get(timeout=10)
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")
+                    self.wfile.flush()
+                    continue
+                if ev is None:
+                    break
+                self.wfile.write(f"data: {json.dumps(ev)}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            p = holder.get("proc")
+            if p and p.poll() is None:
+                p.kill()
 
     def do_PATCH(self):
         m = re.fullmatch(r"/api/tasks/(\d+)", self.path)
@@ -1027,7 +1498,7 @@ def sort_key(r):
 
 
 def hook_session_start():
-    """Print a short task brief for the bucket of the session's folder (added to Claude's context)."""
+    """Print the project's knowledge excerpt and relevant tasks (added to Claude's context)."""
     try:
         data = json.loads(sys.stdin.read() or "{}")
     except Exception:
@@ -1035,6 +1506,18 @@ def hook_session_start():
     try:
         cwd = data.get("cwd") or os.getcwd()
         bucket, project = classify(cwd)
+        name = BUCKETS.get(bucket, {}).get("name", bucket)
+        page = page_path(bucket, project)
+        _, auto, _ = read_page(page)
+        if auto:
+            want = re.findall(r"(## (?:Current state|Open threads|Gotchas)\n.*?)(?=\n## |\Z)", auto, flags=re.S)
+            excerpt = "\n".join(w.strip() for w in want)
+            if len(excerpt) > 1800:
+                excerpt = excerpt[:excerpt.rfind("\n", 0, 1800)] + "\n…"
+            if excerpt:
+                print(f"Unison knowledge page for {project} ({page}), excerpt:\n{excerpt}\n"
+                      "Read the full page (Decisions, Links, the user's Notes) when relevant. Record durable facts or "
+                      "decisions with `unison note -- '<text>'`.\n")
         today = date.today()
         soon = (today + timedelta(days=2)).isoformat()
         con = db()
@@ -1045,7 +1528,6 @@ def hook_session_start():
         if not rows:
             return
         rows = sorted(rows, key=sort_key)[:8]
-        name = BUCKETS.get(bucket, {}).get("name", bucket)
         print(f"Unison task board (user's personal tracker). This folder is in bucket '{name}'. "
               "Open tasks that are relevant (pinned, due soon, or this bucket):")
         for r in rows:
@@ -1070,6 +1552,57 @@ def main(argv):
         return
     if cmd == "hook-session-start":
         return hook_session_start()
+    if cmd == "note":
+        cwd = os.getcwd()
+        if "--cwd" in args:
+            i = args.index("--cwd")
+            cwd, args = args[i + 1], args[:i] + args[i + 2:]
+        con = db()
+        try:
+            bucket, project, text = parse_note(con, " ".join(a for a in args if a != "--"), cwd)
+        finally:
+            con.close()
+        if not text:
+            return print("usage: unison note <text> [@bucket] [+project]")
+        f = add_note(bucket, project, text)
+        return print(f"noted in {f}")
+    if cmd == "kb":
+        sub, rest = (args[0] if args else "ls"), args[1:]
+        if sub == "ls":
+            for pg in kb_index():
+                print(f"{pg['path']:45} {datetime.fromtimestamp(pg['updated']):%Y-%m-%d %H:%M}  {pg['summary'][:70]}")
+        elif sub == "search" and rest:
+            for r in search(" ".join(rest), 15):
+                where = f"{BUCKETS.get(r['bucket'], {}).get('name', r['bucket'])}{'/' + r['project'] if r['project'] else ''}"
+                print(f"[{r['kind']} {r['ref']}] {where} · {r['title'][:70]}\n    {r['snip'].replace(chr(10), ' ')[:200]}")
+        elif sub == "refresh" and (not rest or rest == ["--all"]):
+            con = db()
+            try:
+                projects = known_projects(con, 30)
+            finally:
+                con.close()
+            for p in projects:
+                f = refresh_page(p["bucket"], p["project"], force="--all" in rest)
+                print(f"refreshed {f}" if f else f"skipped {p['bucket']}/{p['project']} (no new activity)")
+            rebuild_index()
+        elif sub in ("read", "refresh") and rest:
+            con = db()
+            try:
+                b = resolve_bucket(rest[0][1:], prefix=True) if rest[0].startswith("@") else None
+                bucket, project = (b, None) if b else resolve_project(con, rest[0])
+            finally:
+                con.close()
+            if not bucket:
+                return print(f"no project matching '{rest[0]}'")
+            if sub == "refresh":
+                f = refresh_page(bucket, project, force=True)
+                rebuild_index()
+                return print(f"refreshed {f}" if f else "nothing to write yet")
+            f = page_path(bucket, project)
+            print(f.read_text() if f.exists() else f"no page yet for {bucket}/{project} ({f})")
+        else:
+            print("usage: unison kb ls | search <q> | read <project|@bucket> | refresh [project|--all]")
+        return
     if cmd == "summary":
         # unison summary [day|yesterday] [bucket] [--force]
         force = "--force" in args

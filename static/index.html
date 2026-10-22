@@ -158,6 +158,73 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
 .done-toggle:hover { color: var(--ink); }
 .col-add { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); outline: 0; font-size: 13px; }
 
+/* knowledge */
+.kb { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 800px) { .kb { grid-template-columns: 1fr; } }
+.kb-side { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 190px); overflow: auto; }
+.kb-search { width: 100%; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 8px 10px; outline: 0; font-size: 13px; }
+.kb-search:focus { border-color: var(--muted); }
+#kbList { display: flex; flex-direction: column; gap: 14px; }
+.kb-group h5 { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: .05em; }
+.kb-group button { display: block; width: 100%; text-align: left; padding: 4px 8px; border-radius: 6px; font-size: 13px; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kb-group button:hover { background: var(--hover); }
+.kb-group button.on { background: var(--panel); box-shadow: inset 2px 0 0 var(--c); }
+.kb-group button small { color: var(--faint); font: 11px var(--mono); margin-left: 6px; }
+.kb-main { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 28px; min-height: 420px; }
+.kb-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--faint); font: 11px var(--mono); }
+.kb-bar .spacer { flex: 1; }
+.kb-edit { width: 100%; min-height: 60vh; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink);
+  font: 13px/1.55 var(--mono); padding: 12px; outline: 0; resize: vertical; }
+.res { padding: 9px 4px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 64px 1fr; gap: 10px; cursor: default; }
+.res.page { cursor: pointer; }
+.res.page:hover .rt { text-decoration: underline; }
+.res .kind { font: 11px var(--mono); color: var(--faint); padding-top: 2px; }
+.res .rt { font-weight: 500; }
+.res .rw { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.res .rs { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+mark { background: color-mix(in srgb, var(--amber) 30%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+/* rendered markdown */
+.md { line-height: 1.6; font-size: 14px; }
+.md h1 { font-size: 21px; margin: 0 0 14px; letter-spacing: -.01em; }
+.md h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 22px 0 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+.md h3 { font-size: 14px; margin: 14px 0 4px; }
+.md p { margin: 6px 0; }
+.md ul, .md ol { margin: 4px 0; padding-left: 20px; }
+.md li { margin: 2px 0; }
+.md code { font: 12.5px var(--mono); background: var(--hover); padding: 1px 4px; border-radius: 4px; }
+.md pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; }
+.md pre code { background: none; padding: 0; }
+.md a { color: inherit; text-decoration-color: var(--faint); }
+.md em { color: var(--muted); }
+
+/* chat with Claude, above the command bar */
+.chat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px;
+  max-height: min(56vh, 620px); display: flex; flex-direction: column; box-shadow: 0 -10px 30px -12px rgba(0,0,0,.45); }
+.chat[hidden] { display: none; }
+.chat-h { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
+.chat-h b { color: var(--ink); font-weight: 600; }
+.chat-h .spacer { flex: 1; }
+.chat-h button { color: var(--faint); padding: 1px 6px; border-radius: 4px; }
+.chat-h button:hover { color: var(--ink); background: var(--hover); }
+.chat-log { overflow: auto; padding: 10px 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+.msg-u { font: 13px var(--mono); color: var(--muted); white-space: pre-wrap; }
+.msg-u::before { content: '› '; color: var(--faint); }
+.msg-a { font-size: 14px; }
+.msg-a .tool { font: 11.5px var(--mono); color: var(--faint); margin: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msg-a .tool::before { content: '↳ '; }
+.msg-a .err { color: var(--red); font: 12px var(--mono); white-space: pre-wrap; }
+.msg-a .meta { font: 11px var(--mono); color: var(--faint); margin-top: 4px; }
+.thinking { font: 12px var(--mono); color: var(--faint); }
+.thinking::after { content: '…'; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.hl .t-ask { color: var(--ink); }
+.hl .t-askq { color: var(--amber); font-weight: 700; }
+.hl .t-proj { font-weight: 600; text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px; }
+.term.ask { border-color: color-mix(in srgb, var(--amber) 55%, var(--line)); }
+.term.ask .prompt { color: var(--amber); }
+
 /* activity: bucket stats */
 .stats { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 1100px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -226,7 +293,8 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
   <nav class="tabs">
     <button data-tab="board">Board<span class="n" id="nBoard"></span></button>
     <button data-tab="activity">Activity<span class="n" id="nAct"></span></button>
-    <span class="kbd">1 · 2</span>
+    <button data-tab="kb">Knowledge<span class="n" id="nKb"></span></button>
+    <span class="kbd">1 · 2 · 3</span>
   </nav>
 
   <section class="view" id="view-board">
@@ -243,10 +311,25 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
     </div>
     <div id="feed"></div>
   </section>
+
+  <section class="view" id="view-kb">
+    <div class="kb">
+      <aside class="kb-side">
+        <input class="kb-search" id="kbSearch" placeholder="Search pages, sessions, commits, tasks…" autocomplete="off">
+        <div id="kbList"></div>
+      </aside>
+      <main class="kb-main" id="kbMain"></main>
+    </div>
+  </section>
 </div>
 
 <div class="dock">
   <div class="dock-in">
+    <div class="chat" id="chat" hidden>
+      <div class="chat-h"><b>Claude</b><span id="chatModel"></span><span class="spacer"></span>
+        <button id="chatStop" hidden>stop</button><button id="chatNew" title="start a new conversation">new</button><button id="chatClose" title="close (Esc)">✕</button></div>
+      <div class="chat-log" id="chatLog"></div>
+    </div>
     <div class="term" id="term">
       <span class="prompt">›</span>
       <div class="field">
@@ -271,7 +354,7 @@ let feedKind = store.get('feedKind', 'all');
 let feedDays = 3;
 let openDone = new Set();
 let addingIn = null;
-let tab = (location.hash.slice(1) === 'activity' || location.hash.slice(1) === 'board') ? location.hash.slice(1) : store.get('tab', 'board');
+let tab = ['board', 'activity', 'kb'].includes(location.hash.slice(1)) ? location.hash.slice(1) : store.get('tab', 'board');
 const theme = store.get('theme', null);
 if (theme) document.documentElement.dataset.theme = theme;
 
@@ -365,6 +448,8 @@ function render() {
   document.querySelectorAll('.tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   $('#view-board').classList.toggle('on', tab === 'board');
   $('#view-activity').classList.toggle('on', tab === 'activity');
+  $('#view-kb').classList.toggle('on', tab === 'kb');
+  if (tab === 'kb' && !kb.loaded) loadKB();
   renderBoard();
   renderStats();
   renderFeed();
@@ -478,6 +563,9 @@ const COMMANDS = [
   { name: 'pin', args: '<task>', desc: 'pin / unpin' },
   { name: 'due', args: '<task> <when>', desc: 'set or clear deadline' },
   { name: 'rm', args: '<task>', desc: 'delete task' },
+  { name: 'note', args: '<text> [@bucket] [+project]', desc: 'add a note to a knowledge page' },
+  { name: 'find', args: '<words>', desc: 'search pages, sessions, commits, tasks' },
+  { name: 'new', args: '', desc: 'start a new Claude chat' },
   { name: 'summary', args: '[day]', desc: 'write the daily summary' },
   { name: 'scan', args: '', desc: 'rescan sessions + commits' },
   { name: 'help', args: '', desc: 'syntax cheat sheet' },
@@ -516,6 +604,12 @@ function bucketItems(q) {
   return S.buckets.filter(b => b.id.startsWith(q) || b.name.toLowerCase().startsWith(q))
     .map(b => ({ insert: '@' + b.id, label: '@' + b.id, sub: b.name, color: b.color }));
 }
+function projectItems(q) {
+  q = q.toLowerCase();
+  const ps = (S.projects || []).filter(p => p.project.toLowerCase().includes(q));
+  ps.sort((a, b) => b.project.toLowerCase().startsWith(q) - a.project.toLowerCase().startsWith(q));
+  return ps.map(p => ({ insert: '+' + p.project, label: '+' + p.project, sub: B(p.bucket).name, color: B(p.bucket).color }));
+}
 function taskItems(q) {
   q = q.toLowerCase();
   return sortTasks(S.tasks.filter(t => t.status !== 'done'))
@@ -536,9 +630,12 @@ function computeSuggestions() {
   const p1 = (prev[prev.length - 1] || '').toLowerCase(), p2 = (prev[prev.length - 2] || '').toLowerCase();
   let items = [];
   const inCmd = prev.length ? prev[0].startsWith('/') : t.startsWith('/');
-  if (inCmd) {
+  if (c.v.trimStart().startsWith('?')) items = t.startsWith('+') ? projectItems(t.slice(1)) : [];
+  else if (inCmd) {
     const cmd = prev.length ? prev[0].slice(1).toLowerCase() : null;
-    if (!prev.length) items = COMMANDS.filter(x => x.name.startsWith(lt.slice(1))).map(x => ({ insert: '/' + x.name, label: `/${x.name} ${x.args}`, sub: x.desc }));
+    if (cmd === 'note' && /^[@#]/.test(t)) items = bucketItems(t.slice(1));
+    else if (cmd === 'note' && t.startsWith('+')) items = projectItems(t.slice(1));
+    else if (!prev.length) items = COMMANDS.filter(x => x.name.startsWith(lt.slice(1))).map(x => ({ insert: '/' + x.name, label: `/${x.name} ${x.args}`, sub: x.desc }));
     else if (TASK_CMDS.includes(cmd) && prev.length === 1) items = taskItems(t);
     else if (cmd === 'due' && prev.length === 2) items = [{ insert: 'none', label: 'none', sub: 'clear deadline' }, ...dateItems(t, '')].filter(x => x.insert.startsWith(lt));
     else if (cmd === 'due' && prev.length === 3 && isDate(p1) && (!t || /^\d/.test(t))) items = timeItems(t);
@@ -566,6 +663,8 @@ function accept(item) {
 
 function highlight() {
   const v = quick.value;
+  const askMode = v.trimStart().startsWith('?');
+  $('#term').classList.toggle('ask', askMode);
   const parts = v.split(/(\s+)/);
   const words = [];
   let html = '', first = true;
@@ -574,7 +673,9 @@ function highlight() {
     if (/^\s+$/.test(p)) { html += p; continue; }
     const lw = p.toLowerCase(), w1 = (words[words.length - 1] || '').toLowerCase(), w2 = (words[words.length - 2] || '').toLowerCase();
     let cls = '', style = '';
-    if (first && p.startsWith('/')) cls = 't-cmd';
+    if (askMode) { cls = first && p.startsWith('?') ? 't-askq' : p.startsWith('+') ? 't-proj' : 't-ask'; }
+    else if (first && p.startsWith('/')) cls = 't-cmd';
+    else if (p.startsWith('+') && (words[0] || '').toLowerCase() === '/note') cls = 't-proj';
     else if (/^[@#]./.test(p)) {
       const q = lw.slice(1);
       const hits = S ? S.buckets.filter(b => b.id.startsWith(q) || b.name.toLowerCase().startsWith(q)) : [];
@@ -602,7 +703,11 @@ function renderSuggest() {
 function renderUnder() {
   if (msg) { under.innerHTML = `<span class="${msg.err ? 'err' : 'ok'}">${esc(msg.text)}</span>`; return; }
   const v = quick.value.trim();
-  if (!v) { under.innerHTML = '<span>@bucket · !due today 18:00 · !fri@14:00 · !+3d · * pin · /done 12 · ↑ history</span>'; return; }
+  if (!v) { under.innerHTML = '<span>task: @bucket !due today 18:00 * · ? ask Claude (⇧⇥) · /note · /find · /done · ↑ history</span>'; return; }
+  if (v.startsWith('?')) {
+    under.innerHTML = `<span>ask Claude · it knows your board, deadlines and project pages, and can read code${chat.session ? ' · continues the chat' : ''}</span><span style="margin-left:auto">↵ send · ⇧⇥ task mode</span>`;
+    return;
+  }
   if (v.startsWith('/')) {
     const c = COMMANDS.find(x => x.name === v.slice(1).split(/\s+/)[0].toLowerCase());
     under.innerHTML = c ? `<span>/${c.name} ${esc(c.args)} — ${esc(c.desc)}</span>` : '<span>command</span>';
@@ -624,6 +729,12 @@ async function submit() {
   if (!v) return;
   history = [v, ...history.filter(h => h !== v)].slice(0, 50); store.set('history', history); hIdx = -1;
   if (v.startsWith('/')) return runCommand(v);
+  if (v.startsWith('?')) {
+    const q = v.replace(/^\?\s*/, '');
+    if (!q) return openChat();
+    quick.value = ''; msg = null; refresh();
+    return askClaude(q);
+  }
   const r = await api('POST', '/api/tasks', { text: v });
   if (r.error) return say(r.error, true);
   quick.value = '';
@@ -650,6 +761,19 @@ async function runCommand(v) {
     else r = await api('PATCH', `/api/tasks/${t.id}`, { status: cmd });
     if (r.error) return say(r.error, true);
     say(`✓ ${cmd === 'pin' ? (t.pinned ? 'unpinned' : 'pinned') : cmd} · ${t.title}`);
+  } else if (cmd === 'note') {
+    const r = await api('POST', '/api/kb/note', { text: args.join(' ') });
+    if (r.error) return say(r.error, true);
+    say(`✓ noted in kb/${r.path}`);
+    if (kb.loaded) loadKB(r.path);
+  } else if (cmd === 'find') {
+    setTab('kb');
+    if (!kb.loaded) await loadKB();
+    $('#kbSearch').value = args.join(' ');
+    $('#kbSearch').dispatchEvent(new Event('input'));
+    say(`searching “${args.join(' ')}”`);
+  } else if (cmd === 'new') {
+    chat.session = null; chat.msgs = []; saveChat(); openChat(); say('✓ new Claude chat');
   } else if (cmd === 'summary') {
     const day = dayFromWord(args[0]);
     say(`✦ summarizing ${day}…`);
@@ -674,6 +798,12 @@ quick.addEventListener('click', refresh);
 quick.addEventListener('keyup', e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) refresh(); });
 quick.addEventListener('keydown', e => {
   const open = !dismissed && sug.items.length > 0;
+  if (e.key === 'Tab' && e.shiftKey) {
+    e.preventDefault();
+    quick.value = quick.value.startsWith('?') ? quick.value.replace(/^\?\s*/, '') : '? ' + quick.value;
+    quick.setSelectionRange(quick.value.length, quick.value.length);
+    msg = null; return refresh();
+  }
   if (e.key === 'Tab') {
     e.preventDefault();
     if (open) accept(sug.items[sel]);
@@ -701,6 +831,7 @@ quick.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (open) { dismissed = true; renderSuggest(); highlight(); }
     else if (quick.value) { quick.value = ''; msg = null; refresh(); }
+    else if (!chatEl.hidden) { if (chat.busy) chat.ctrl.abort(); else closeChat(); }
     else quick.blur();
   }
 });
@@ -778,7 +909,7 @@ function setTab(t) { tab = t; store.set('tab', t); window.history.replaceState(n
 document.querySelectorAll('.tabs [data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
 document.addEventListener('keydown', e => {
   const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable;
-  if (!typing && !e.ctrlKey && !e.metaKey && (e.key === '1' || e.key === '2')) setTab(e.key === '1' ? 'board' : 'activity');
+  if (!typing && !e.ctrlKey && !e.metaKey && ['1', '2', '3'].includes(e.key)) setTab(['board', 'activity', 'kb'][+e.key - 1]);
 });
 
 // drag a task: onto a lane = move bucket (and unpin), onto the pinboard = pin
@@ -818,6 +949,187 @@ $('#themeBtn').onclick = () => {
   const next = cur === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = next; store.set('theme', next);
 };
+
+// ---- tiny markdown renderer (headings, lists, code, bold, italics, links)
+function md(src) {
+  const inline = t => esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[\s(])_([^_]+)_(?=[\s).,;:]|$)/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  const out = [];
+  let list = null, code = null;
+  const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of String(src || '').replace(/<!--[\s\S]*?-->/g, '').split('\n')) {
+    if (code !== null) {
+      if (/^```/.test(raw)) { out.push(`<pre><code>${esc(code)}</code></pre>`); code = null; } else code += raw + '\n';
+      continue;
+    }
+    if (/^```/.test(raw)) { close(); code = ''; continue; }
+    const h = raw.match(/^(#{1,3})\s+(.*)/);
+    const li = raw.match(/^\s*[-*•]\s+(.*)/), ol = raw.match(/^\s*\d+[.)]\s+(.*)/);
+    if (h) { close(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); }
+    else if (li || ol) {
+      const kind = li ? 'ul' : 'ol';
+      if (list !== kind) { close(); out.push(`<${kind}>`); list = kind; }
+      out.push(`<li>${inline((li || ol)[1])}</li>`);
+    }
+    else if (!raw.trim()) close();
+    else { close(); out.push(`<p>${inline(raw)}</p>`); }
+  }
+  if (code !== null) out.push(`<pre><code>${esc(code)}</code></pre>`);
+  close();
+  return out.join('');
+}
+
+// ---- Knowledge tab
+const kb = { loaded: false, pages: [], current: null, content: '', editing: false, query: '', results: null };
+async function loadKB(open) {
+  kb.pages = await api('GET', '/api/kb');
+  kb.loaded = true;
+  $('#nKb').textContent = kb.pages.length || '';
+  if (open) kb.current = open;
+  if (!kb.current && kb.pages.length) kb.current = kb.pages.slice().sort((a, b) => b.updated - a.updated)[0].path;
+  renderKBList();
+  if (kb.query) return renderResults();
+  if (kb.current) openPage(kb.current);
+  else $('#kbMain').innerHTML = '<div class="empty">No pages yet. Unison writes one per project after activity, or add a note with <code>/note</code>.</div>';
+}
+function renderKBList() {
+  $('#kbList').innerHTML = S.buckets.map(b => {
+    const ps = kb.pages.filter(p => p.bucket === b.id).sort((x, y) => (x.project ? 1 : 0) - (y.project ? 1 : 0) || y.updated - x.updated);
+    if (!ps.length) return '';
+    return `<div class="kb-group" style="--c:${b.color}"><h5><span class="dot"></span>${esc(b.name)}</h5>
+      ${ps.map(p => `<button class="${p.path === kb.current && !kb.query ? 'on' : ''}" data-page="${esc(p.path)}" title="${esc(p.summary)}">${esc(p.project || 'General')}<small>${ago(p.updated).replace(' ago', '')}</small></button>`).join('')}</div>`;
+  }).join('');
+}
+async function openPage(path) {
+  kb.current = path; kb.query = ''; kb.editing = false;
+  $('#kbSearch').value = '';
+  const r = await api('GET', `/api/kb/page?path=${encodeURIComponent(path)}`);
+  kb.content = r.content || '';
+  renderPage();
+  renderKBList();
+}
+function renderPage() {
+  const p = kb.pages.find(x => x.path === kb.current) || {};
+  const bar = `<div class="kb-bar"><span>kb/${esc(kb.current)}</span><span>· updated ${ago(p.updated)}</span><span class="spacer"></span>
+    ${kb.editing ? '<button class="iconbtn" data-kb="save">save</button><button class="iconbtn" data-kb="cancel">cancel</button>'
+      : `<button class="iconbtn" data-kb="ask" title="ask Claude about this project">ask</button>${p.project ? '<button class="iconbtn" data-kb="refresh" title="rewrite from recent activity (keeps your notes)">refresh</button>' : ''}<button class="iconbtn" data-kb="edit">edit</button>`}</div>`;
+  $('#kbMain').innerHTML = bar + (kb.editing ? `<textarea class="kb-edit" id="kbEdit">${esc(kb.content)}</textarea>` : `<div class="md">${md(kb.content)}</div>`);
+}
+let kbTimer = null;
+$('#kbSearch').addEventListener('input', e => {
+  clearTimeout(kbTimer);
+  kbTimer = setTimeout(async () => {
+    kb.query = e.target.value.trim();
+    if (!kb.query) { renderKBList(); return kb.current ? openPage(kb.current) : null; }
+    kb.results = await api('GET', `/api/search?q=${encodeURIComponent(kb.query)}`);
+    renderKBList(); renderResults();
+  }, 140);
+});
+function renderResults() {
+  const rs = kb.results || [];
+  const label = { page: 'page', session: 'session', commit: 'commit', task: 'task', summary: 'summary' };
+  $('#kbMain').innerHTML = `<div class="kb-bar"><span>${rs.length} result${rs.length === 1 ? '' : 's'} for “${esc(kb.query)}”</span></div>` +
+    (rs.map(r => {
+      const b = B(r.bucket);
+      const snip = esc(r.snip || '').replace(/\[\[/g, '<mark>').replace(/\]\]/g, '</mark>');
+      const when = r.ts ? new Date(r.ts * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+      return `<div class="res ${r.kind}" ${r.kind === 'page' ? `data-page="${esc(r.ref)}"` : ''} style="--c:${b.color}">
+        <span class="kind">${label[r.kind] || r.kind}</span>
+        <div><div class="rt">${esc(r.title)}</div>
+          <div class="rw"><span class="dot"></span>${esc(b.name)}${r.project ? ' · ' + esc(r.project) : ''}${when ? ' · ' + when : ''}${r.kind === 'commit' ? ' · ' + esc(r.ref) : ''}</div>
+          ${snip ? `<div class="rs">${snip}</div>` : ''}</div></div>`;
+    }).join('') || '<div class="empty">Nothing found.</div>');
+}
+document.addEventListener('click', async e => {
+  const pg = e.target.closest('[data-page]');
+  if (pg) { if (tab !== 'kb') setTab('kb'); return openPage(pg.dataset.page); }
+  const k = e.target.closest('[data-kb]');
+  if (!k) return;
+  const act = k.dataset.kb;
+  if (act === 'edit') { kb.editing = true; renderPage(); $('#kbEdit').focus(); }
+  else if (act === 'cancel') { kb.editing = false; renderPage(); }
+  else if (act === 'save') {
+    kb.content = $('#kbEdit').value;
+    await api('PUT', '/api/kb/page', { path: kb.current, content: kb.content });
+    kb.editing = false; renderPage();
+  }
+  else if (act === 'refresh') {
+    k.textContent = 'rewriting…'; k.disabled = true;
+    await api('POST', '/api/kb/refresh', { path: kb.current });
+    await loadKB(kb.current);
+  }
+  else if (act === 'ask') {
+    const p = kb.pages.find(x => x.path === kb.current);
+    quick.value = `? ${p && p.project ? `about ${p.project}: ` : ''}`;
+    quick.focus(); quick.setSelectionRange(quick.value.length, quick.value.length); refresh();
+  }
+});
+
+// ---- Claude chat (the command bar's ? mode)
+const chat = { session: store.get('chatSession', null), msgs: store.get('chatMsgs', []), busy: false, ctrl: null };
+const chatEl = $('#chat'), chatLog = $('#chatLog');
+function saveChat() { store.set('chatSession', chat.session); store.set('chatMsgs', chat.msgs.slice(-30)); }
+function msgHTML(m) {
+  if (m.role === 'user') return `<div class="msg-u">${esc(m.text)}</div>`;
+  const parts = (m.parts || []).map(p => p.tool ? `<div class="tool" title="${esc(p.tool)}">${esc(p.tool)}</div>` : `<div class="md">${md(p.text)}</div>`).join('');
+  return `<div class="msg-a">${parts}${m.error ? `<div class="err">${esc(m.error)}</div>` : ''}${m.pending ? '<div class="thinking">thinking</div>' : ''}${m.cost ? `<div class="meta">$${m.cost.toFixed(3)}</div>` : ''}</div>`;
+}
+function renderChat() {
+  chatLog.innerHTML = chat.msgs.map(msgHTML).join('') || '<div class="thinking" style="animation:none">Ask about your projects, deadlines or code. Claude can add tasks and notes.</div>';
+  chatLog.scrollTop = chatLog.scrollHeight;
+  $('#chatStop').hidden = !chat.busy;
+}
+function openChat() { chatEl.hidden = false; renderChat(); }
+function closeChat() { chatEl.hidden = true; }
+let chatFrame = null;
+const renderChatSoon = () => { if (!chatFrame) chatFrame = requestAnimationFrame(() => { chatFrame = null; renderChat(); }); };
+
+async function askClaude(text) {
+  if (chat.busy) return say('Claude is still answering. Press stop first.', true);
+  openChat();
+  chat.msgs.push({ role: 'user', text });
+  const m = { role: 'ai', parts: [], pending: true };
+  chat.msgs.push(m);
+  chat.busy = true; renderChat();
+  chat.ctrl = new AbortController();
+  try {
+    const res = await fetch('/api/ask', { method: 'POST', body: JSON.stringify({ text, session: chat.session }), signal: chat.ctrl.signal });
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!chunk.startsWith('data:')) continue;
+        const ev = JSON.parse(chunk.slice(5));
+        if (ev.t === 'session') { chat.session = ev.id; $('#chatModel').textContent = (ev.model || '').replace('claude-', ''); }
+        else if (ev.t === 'text') {
+          const last = m.parts[m.parts.length - 1];
+          if (last && !last.tool) last.text += ev.v; else m.parts.push({ text: ev.v });
+        }
+        else if (ev.t === 'tool') m.parts.push({ tool: `${ev.name} ${ev.v.replace('/home/fatikh/', '~/')}` });
+        else if (ev.t === 'done') { if (ev.session) chat.session = ev.session; if (ev.error) m.error = ev.result || 'failed'; m.cost = ev.cost; }
+        renderChatSoon();
+      }
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') m.error = String(err); else m.error = 'stopped';
+  }
+  m.pending = false; chat.busy = false; chat.ctrl = null;
+  saveChat(); renderChat();
+  await load();
+  if (kb.loaded) loadKB(kb.current);
+}
+$('#chatStop').onclick = () => chat.ctrl && chat.ctrl.abort();
+$('#chatNew').onclick = () => { chat.session = null; chat.msgs = []; saveChat(); renderChat(); quick.focus(); };
+$('#chatClose').onclick = closeChat;
 
 load();
 setInterval(() => { if (!document.hidden && !document.activeElement.isContentEditable && document.activeElement.tagName !== 'INPUT') load(); }, 60000);

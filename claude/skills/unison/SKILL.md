@@ -1,6 +1,6 @@
 ---
 name: unison
-description: Write tasks into the user's Unison board (their personal work tracker at http://unison) in a concise format, and update or complete them. Use when the user asks to add, note, track or remember a task, todo, reminder or deadline ("put this on my board", "remind me to…", "add a task for…"), asks to turn notes, a message, meeting notes, a plan or this session's next steps into tasks, asks what is on their board, or says a tracked task is done.
+description: Write tasks and knowledge notes into the user's Unison tracker (http://unison) in a concise format, update or complete tasks, and look up project knowledge pages. Use when the user asks to add, note, track or remember a task, todo, reminder, deadline or fact ("put this on my board", "remind me to…", "add a task for…"), asks to turn notes, a message, meeting notes, a plan or this session's next steps into tasks, asks what is on their board, or says a tracked task is done.
 ---
 
 # Unison tasks
@@ -76,6 +76,21 @@ Find the id with `unison ls` (the number in `[n]`), then:
 | `unison rename <id> -- '<new title>'` | change the title |
 
 Several ids work at once: `unison done 4 7`.
+
+## Knowledge base
+
+Each project has a markdown page at `~/projects/unison/kb/<bucket>/<project>.md` with these sections: Overview, Current state, Open threads, Decisions, Gotchas, Links, Notes. Unison rewrites everything above Notes from recent activity. The Notes section belongs to the user and is only ever added to.
+
+| command | effect |
+|---|---|
+| `unison kb read <project>` | show a project's page (`@bucket` shows that bucket's general page) |
+| `unison kb search <words>` | search pages, sessions, commits, tasks and summaries |
+| `unison note -- '<fact> [@bucket] [+project]'` | add a dated line to the page's Notes (defaults to the current folder's project) |
+| `unison kb refresh <project>` | rewrite the page from recent activity |
+
+**Notes:** use them for durable facts the user asks you to remember, or that you'd want next time: a decision and its reason, where something lives, a gotcha, a contact. Keep each to one line, and never include secret values.
+
+**Questions about a project's history or state:** read its page first.
 
 ## Reporting back
 
