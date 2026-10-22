@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unison</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='12' cy='16' r='9' fill='none' stroke='%2312a594' stroke-width='3'/><circle cx='20' cy='16' r='9' fill='none' stroke='%23e5484d' stroke-width='3'/></svg>">
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1c1c1a; --muted: #75756f; --faint: #a9a9a2;
+  --line: #e7e6e1; --hover: #f1f0ec; --red: #d93d42; --amber: #c27c0e; --accent: #1c1c1a;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111110; --panel: #191918; --ink: #ededea; --muted: #8f8f88; --faint: #5c5c57;
+    --line: #2a2a28; --hover: #222220; --red: #ff6369; --amber: #f1a10d; --accent: #ededea;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111110; --panel: #191918; --ink: #ededea; --muted: #8f8f88; --faint: #5c5c57;
+  --line: #2a2a28; --hover: #222220; --red: #ff6369; --amber: #f1a10d; --accent: #ededea;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+input { font: inherit; color: inherit; }
+.wrap { max-width: 1440px; margin: 0 auto; padding: 22px 24px 60px; }
+
+/* header */
+header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margin-bottom: 18px; }
+.brand { font-weight: 650; font-size: 18px; letter-spacing: -0.02em; }
+.brand span { color: var(--faint); font-weight: 400; }
+.today { color: var(--muted); }
+.spacer { flex: 1; }
+.meta { color: var(--faint); font-size: 12px; font-family: var(--mono); }
+.iconbtn { color: var(--muted); font-size: 12px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.iconbtn:hover { background: var(--hover); color: var(--ink); }
+
+/* quick add */
+.add { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; }
+.add:focus-within { border-color: var(--muted); }
+.add input { flex: 1; border: 0; outline: 0; background: none; font-size: 15px; }
+.add .hint { color: var(--faint); font-size: 12px; font-family: var(--mono); white-space: nowrap; }
+.preview { font-size: 12px; color: var(--muted); display: flex; gap: 8px; }
+
+/* pinned */
+.pinned { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.pin-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--c);
+  border-radius: 8px; padding: 8px 12px; display: flex; gap: 10px; align-items: center; min-width: 220px; max-width: 420px; }
+.pin-card .t { flex: 1; }
+
+/* board */
+.board { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .board { grid-template-columns: 1fr; } .wrap { padding: 16px; } .add .hint { display: none; } .pin-card { min-width: 0; max-width: none; flex: 1 1 100%; } }
+.col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 14px 10px; }
+.col-h { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
+.col-h .name { font-weight: 600; }
+.col-h .count { color: var(--faint); font-size: 12px; }
+.col-h .plus { margin-left: auto; color: var(--faint); font-size: 18px; line-height: 1; padding: 0 4px; border-radius: 4px; }
+.col-h .plus:hover { color: var(--ink); background: var(--hover); }
+.col-stats { display: flex; gap: 12px; color: var(--muted); font-size: 12px; font-family: var(--mono); margin-bottom: 8px; }
+.col-stats .idle { color: var(--amber); }
+.spark { display: flex; gap: 3px; align-items: flex-end; height: 26px; margin: 2px 0 10px; }
+.spark i { flex: 1; background: var(--c); opacity: .85; border-radius: 2px; min-height: 2px; }
+.spark i.zero { background: var(--line); opacity: 1; }
+.projects { font-size: 12px; color: var(--muted); margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.projects b { font-weight: 500; color: var(--ink); }
+.tasks { border-top: 1px solid var(--line); padding-top: 6px; min-height: 30px; }
+.empty { color: var(--faint); font-size: 12px; padding: 8px 2px; }
+
+.task { display: flex; align-items: flex-start; gap: 8px; padding: 5px 4px; border-radius: 6px; position: relative; }
+.task:hover { background: var(--hover); }
+.check { width: 15px; height: 15px; border: 1.5px solid var(--faint); border-radius: 4px; flex: none; margin-top: 2px; }
+.check:hover { border-color: var(--c); }
+.task.doing .check { border-color: var(--c); background: linear-gradient(90deg, var(--c) 50%, transparent 50%); }
+.task.done .check { background: var(--c); border-color: var(--c); }
+.task.done .title { color: var(--faint); text-decoration: line-through; }
+.task .body { flex: 1; min-width: 0; }
+.task .title { word-wrap: break-word; outline: 0; }
+.task .title[contenteditable="true"] { background: var(--bg); border-radius: 3px; padding: 0 3px; }
+.chips { display: flex; gap: 6px; margin-top: 1px; }
+.chip { font-size: 11px; font-family: var(--mono); color: var(--muted); }
+.chip.over { color: var(--red); font-weight: 600; }
+.chip.soon { color: var(--amber); font-weight: 600; }
+.chip.doing { color: var(--c); }
+.actions { display: none; gap: 2px; flex: none; }
+.task:hover .actions { display: flex; }
+.actions button { font-size: 12px; color: var(--faint); padding: 1px 4px; border-radius: 4px; }
+.actions button:hover { color: var(--ink); background: var(--panel); }
+.pinbtn.on { color: var(--ink); }
+.date-in { font-size: 11px; font-family: var(--mono); border: 1px solid var(--line); border-radius: 4px; background: var(--panel); padding: 0 4px; }
+.done-toggle { font-size: 12px; color: var(--faint); padding: 6px 4px 2px; }
+.done-toggle:hover { color: var(--ink); }
+.col-add { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: var(--bg); outline: 0; margin: 4px 0; font-size: 13px; }
+
+/* feed */
+.feed-h { display: flex; align-items: center; gap: 12px; margin: 34px 0 10px; flex-wrap: wrap; }
+.feed-h h2 { font-size: 14px; margin: 0; font-weight: 600; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.filters button { font-size: 12px; padding: 2px 9px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.filters button.on { color: var(--ink); border-color: var(--muted); background: var(--panel); }
+.day { margin-bottom: 14px; }
+.day-h { font-size: 12px; color: var(--muted); padding: 6px 0; border-bottom: 1px solid var(--line); display: flex; gap: 12px; }
+.day-h b { color: var(--ink); font-weight: 600; }
+.day-h .sum { font-family: var(--mono); }
+.item { display: grid; grid-template-columns: 46px 10px 150px 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+.item .time { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+.item .dot { align-self: start; margin-top: 7px; }
+.item.commit .dot { border-radius: 2px; width: 7px; height: 7px; }
+.item .proj { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .what { min-width: 0; }
+.item .recap { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.item .m { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 6px; }
+.item.commit .what { color: var(--muted); font-family: var(--mono); font-size: 12.5px; }
+.item .hash { color: var(--faint); margin-right: 6px; }
+@media (max-width: 640px) { .item { grid-template-columns: 40px 10px 1fr; } .item .proj { display: none; } }
+.more { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.more:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">unison <span>· work</span></div>
+    <div class="today" id="today"></div>
+    <div class="spacer"></div>
+    <div class="meta" id="meta"></div>
+    <button class="iconbtn" id="scanBtn" title="Rescan sessions and commits">rescan</button>
+    <button class="iconbtn" id="themeBtn" title="Toggle theme">theme</button>
+  </header>
+
+  <div class="add">
+    <input id="quick" placeholder="Add a task…   e.g.  fix auth bug #forte !fri *" autocomplete="off">
+    <span class="preview" id="preview"></span>
+    <span class="hint">#bucket  !due  * pin</span>
+  </div>
+
+  <div class="pinned" id="pinned"></div>
+  <div class="board" id="board"></div>
+
+  <div class="feed-h">
+    <h2>Activity</h2>
+    <div class="filters" id="filters"></div>
+    <div class="spacer"></div>
+    <button class="iconbtn" id="kindBtn"></button>
+  </div>
+  <div id="feed"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('unison.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('unison.' + k, JSON.stringify(v)); } catch {} },
+};
+let S = null;
+let feedFilter = store.get('feedFilter', 'all');
+let feedKind = store.get('feedKind', 'all');
+let feedDays = 3;
+let openDone = new Set();
+let addingIn = null;
+const theme = store.get('theme', null);
+if (theme) document.documentElement.dataset.theme = theme;
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const B = id => S.buckets.find(b => b.id === id) || { id, name: id, color: '#888' };
+const hrs = m => m >= 60 ? (m / 60).toFixed(1).replace(/\.0$/, '') + 'h' : Math.round(m) + 'm';
+const localISO = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const dayDiff = iso => Math.round((new Date(iso + 'T00:00') - new Date(S.today + 'T00:00')) / 86400000);
+function ago(ts) {
+  if (!ts) return 'never';
+  const s = Date.now() / 1000 - ts;
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + 'm ago';
+  if (s < 86400) return Math.round(s / 3600) + 'h ago';
+  return Math.round(s / 86400) + 'd ago';
+}
+function dueChip(t) {
+  if (!t.due) return '';
+  const d = dayDiff(t.due);
+  const dt = new Date(t.due + 'T00:00');
+  let label, cls = '';
+  if (d < 0) { label = d === -1 ? 'yesterday' : `${-d}d overdue`; cls = 'over'; }
+  else if (d === 0) { label = 'today'; cls = 'over'; }
+  else if (d === 1) { label = 'tomorrow'; cls = 'soon'; }
+  else if (d < 7) { label = dt.toLocaleDateString(undefined, { weekday: 'short' }); cls = d <= 2 ? 'soon' : ''; }
+  else label = dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  if (t.status === 'done') cls = '';
+  return `<button class="chip ${cls}" data-act="due" title="${t.due}">${label}</button>`;
+}
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  return r.json();
+}
+async function load() { S = await api('GET', `/api/state?days=${feedDays}`); render(); }
+const patch = (id, f) => api('PATCH', `/api/tasks/${id}`, f).then(load);
+
+function sortTasks(ts) {
+  return ts.slice().sort((a, b) =>
+    (b.status === 'doing') - (a.status === 'doing') ||
+    (a.due || '9999').localeCompare(b.due || '9999') ||
+    b.pinned - a.pinned || a.id - b.id);
+}
+
+function taskHTML(t, showBucket) {
+  const b = B(t.bucket);
+  return `<div class="task ${t.status}" data-id="${t.id}" style="--c:${b.color}">
+    <button class="check" data-act="check" title="click: done · shift-click: doing"></button>
+    <div class="body">
+      <div class="title" data-act="edit">${esc(t.title)}</div>
+      <div class="chips">${showBucket ? `<span class="chip" style="color:${b.color}">${esc(b.name)}</span>` : ''}${t.status === 'doing' ? '<span class="chip doing">in progress</span>' : ''}${dueChip(t)}</div>
+    </div>
+    <div class="actions">
+      <button data-act="doing" title="toggle in progress">${t.status === 'doing' ? '❚❚' : '▶'}</button>
+      ${t.due ? '' : '<button data-act="due" title="set deadline">◷</button>'}
+      <button class="pinbtn ${t.pinned ? 'on' : ''}" data-act="pin" title="pin">${t.pinned ? '★' : '☆'}</button>
+      <button data-act="del" title="delete">✕</button>
+    </div>
+  </div>`;
+}
+
+function render() {
+  const now = new Date();
+  $('#today').textContent = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  const weekMin = Object.values(S.stats).reduce((a, s) => a + s.week_min, 0);
+  const weekCommits = Object.values(S.stats).reduce((a, s) => a + s.week_commits, 0);
+  $('#meta').textContent = `week ${hrs(weekMin)} · ${weekCommits} commits · scanned ${ago(S.scanned_at)}`;
+
+  // pinned strip
+  const pinned = sortTasks(S.tasks.filter(t => t.pinned && t.status !== 'done'));
+  $('#pinned').innerHTML = pinned.map(t => `<div class="pin-card" style="--c:${B(t.bucket).color}">${taskHTML(t, true)}</div>`).join('');
+
+  // columns
+  const board = $('#board');
+  board.style.setProperty('--cols', S.buckets.length);
+  board.innerHTML = S.buckets.map(b => {
+    const st = S.stats[b.id];
+    const open = sortTasks(S.tasks.filter(t => t.bucket === b.id && t.status !== 'done' && !t.pinned));
+    const pinnedHere = S.tasks.filter(t => t.bucket === b.id && t.status !== 'done' && t.pinned).length;
+    const done = S.tasks.filter(t => t.bucket === b.id && t.status === 'done').sort((x, y) => y.done_at - x.done_at);
+    const max = Math.max(30, ...st.daily.map(d => d.min));
+    const idleDays = st.last ? (Date.now() / 1000 - st.last) / 86400 : 999;
+    const spark = st.daily.map(d => {
+      const h = d.min ? Math.max(8, d.min / max * 100) : 8;
+      return `<i class="${d.min || d.commits ? '' : 'zero'}" style="height:${h}%" title="${d.day}: ${hrs(d.min)} · ${d.commits} commits"></i>`;
+    }).join('');
+    const projects = st.projects.map(p => `<span><b>${esc(p.project)}</b> ${p.minutes ? hrs(p.minutes) : ''}${p.commits ? ' · ' + p.commits + '⎇' : ''}</span>`).join('');
+    return `<section class="col" style="--c:${b.color}" data-bucket="${b.id}">
+      <div class="col-h"><span class="dot"></span><span class="name">${esc(b.name)}</span>
+        <span class="count">${open.length + pinnedHere || ''}</span>
+        <button class="plus" data-act="col-add" title="add task">+</button></div>
+      <div class="col-stats"><span title="Claude session time this week">${hrs(st.week_min)}</span><span title="commits this week">${st.week_commits} ⎇</span>
+        <span class="${idleDays > 5 && idleDays < 999 ? 'idle' : ''}" title="last activity">${ago(st.last)}</span></div>
+      <div class="spark">${spark}</div>
+      ${projects ? `<div class="projects">${projects}</div>` : ''}
+      <div class="tasks">
+        ${addingIn === b.id ? `<input class="col-add" data-bucket="${b.id}" placeholder="New ${esc(b.name)} task…  !due  *">` : ''}
+        ${open.map(t => taskHTML(t)).join('') || (addingIn === b.id ? '' : `<div class="empty">${pinnedHere ? pinnedHere + ' pinned above' : 'Nothing here'}</div>`)}
+        ${done.length ? `<button class="done-toggle" data-act="toggle-done">${openDone.has(b.id) ? '▾' : '▸'} ${done.length} done this week</button>` : ''}
+        ${openDone.has(b.id) ? done.map(t => taskHTML(t)).join('') : ''}
+      </div>
+    </section>`;
+  }).join('');
+  if (addingIn) { const i = board.querySelector('.col-add'); i && i.focus(); }
+
+  renderFeed();
+}
+
+function renderFeed() {
+  $('#filters').innerHTML = [{ id: 'all', name: 'All', color: 'transparent' }, ...S.buckets].map(b =>
+    `<button class="${feedFilter === b.id ? 'on' : ''}" data-f="${b.id}">${b.id !== 'all' ? `<span class="dot" style="--c:${b.color}"></span>` : ''}${esc(b.name)}</button>`).join('');
+  $('#kindBtn').textContent = { all: 'sessions + commits', session: 'sessions only', commit: 'commits only' }[feedKind];
+
+  const items = S.feed.filter(x => (feedFilter === 'all' || x.bucket === feedFilter) && (feedKind === 'all' || x.kind === feedKind));
+  const days = new Map();
+  for (const x of items) {
+    const d = localISO(new Date(x.ts * 1000));
+    if (!days.has(d)) days.set(d, []);
+    days.get(d).push(x);
+  }
+  let html = '';
+  for (const [d, xs] of days) {
+    const diff = dayDiff(d);
+    const label = diff === 0 ? 'Today' : diff === -1 ? 'Yesterday' : new Date(d + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+    const mins = xs.filter(x => x.kind === 'session').reduce((a, x) => a + x.minutes, 0);
+    const commits = xs.filter(x => x.kind === 'commit').length;
+    html += `<div class="day"><div class="day-h"><b>${label}</b><span class="sum">${mins ? '~' + hrs(mins) : ''}${commits ? ' · ' + commits + ' commits' : ''}</span></div>`;
+    for (const x of xs) {
+      const b = B(x.bucket);
+      const t = new Date(x.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      if (x.kind === 'session') {
+        const showPrompt = x.prompt && x.prompt !== x.title;
+        html += `<div class="item session" style="--c:${b.color}"><span class="time">${t}</span><span class="dot"></span>
+          <span class="proj" title="${esc(x.project)}">${esc(x.project)}</span>
+          <div class="what">${esc(x.title)}<span class="m">${hrs(x.minutes)} · ${x.prompts} prompts</span>
+          ${x.recap ? `<div class="recap">${esc(x.recap)}</div>` : showPrompt ? `<div class="recap">“${esc(x.prompt.slice(0, 180))}”</div>` : ''}</div></div>`;
+      } else {
+        html += `<div class="item commit" style="--c:${b.color}"><span class="time">${t}</span><span class="dot"></span>
+          <span class="proj" title="${esc(x.project)}">${esc(x.project)}</span>
+          <div class="what"><span class="hash">${x.id}</span>${esc(x.title)}</div></div>`;
+      }
+    }
+    html += '</div>';
+  }
+  html += feedDays < 30 ? `<button class="more" id="moreBtn">Show ${feedDays < 7 ? 'week' : 'month'} →</button>` : '';
+  $('#feed').innerHTML = html || '<div class="empty">No activity in this range.</div>';
+  const more = $('#moreBtn');
+  if (more) more.onclick = () => { feedDays = feedDays < 7 ? 7 : 30; load(); };
+}
+
+// ---- quick add with live preview
+const quick = $('#quick');
+const aliases = { f: 'forte', u: 'uni', univ: 'uni', course: 'uni', a: 'arqamed', arq: 'arqamed', nabi: 'arqamed', z: 'zap', o: 'other', p: 'other', personal: 'other' };
+quick.addEventListener('input', () => {
+  const tag = (quick.value.match(/(?:^|\s)#(\w+)/) || [])[1];
+  const due = (quick.value.match(/(?:^|\s)!(\S+)/) || [])[1];
+  const pin = /(?:^|\s)\*(?:\s|$)/.test(quick.value);
+  const b = tag && S && S.buckets.find(x => x.id === tag.toLowerCase() || x.name.toLowerCase() === tag.toLowerCase() || aliases[tag.toLowerCase()] === x.id);
+  $('#preview').innerHTML = [b ? `<span style="color:${b.color}">● ${esc(b.name)}</span>` : '', due ? `◷ ${esc(due)}` : '', pin ? '★' : ''].join(' ');
+});
+quick.addEventListener('keydown', async e => {
+  if (e.key === 'Enter' && quick.value.trim()) {
+    const r = await api('POST', '/api/tasks', { text: quick.value });
+    if (!r.error) { quick.value = ''; $('#preview').innerHTML = ''; load(); }
+  } else if (e.key === 'Escape') quick.blur();
+});
+document.addEventListener('keydown', e => {
+  if ((e.key === '/' || e.key === 'n') && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) && !document.activeElement.isContentEditable) {
+    e.preventDefault(); quick.focus();
+  }
+});
+
+// ---- task interactions (event delegation)
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]');
+  const f = e.target.closest('[data-f]');
+  if (f) { feedFilter = f.dataset.f; store.set('feedFilter', feedFilter); return renderFeed(); }
+  if (!el) return;
+  const act = el.dataset.act;
+  const col = el.closest('.col');
+  if (act === 'col-add') { addingIn = addingIn === col.dataset.bucket ? null : col.dataset.bucket; return render(); }
+  if (act === 'toggle-done') { const b = col.dataset.bucket; openDone.has(b) ? openDone.delete(b) : openDone.add(b); return render(); }
+  const taskEl = el.closest('.task');
+  if (!taskEl) return;
+  const id = +taskEl.dataset.id;
+  const t = S.tasks.find(x => x.id === id);
+  if (act === 'check') return patch(id, { status: e.shiftKey ? (t.status === 'doing' ? 'todo' : 'doing') : (t.status === 'done' ? 'todo' : 'done') });
+  if (act === 'doing') return patch(id, { status: t.status === 'doing' ? 'todo' : 'doing' });
+  if (act === 'pin') return patch(id, { pinned: !t.pinned });
+  if (act === 'del') { await api('DELETE', `/api/tasks/${id}`); return load(); }
+  if (act === 'due') {
+    const inp = document.createElement('input');
+    inp.type = 'date'; inp.className = 'date-in'; inp.value = t.due || '';
+    el.replaceWith(inp); inp.focus(); try { inp.showPicker(); } catch {}
+    inp.addEventListener('change', () => patch(id, { due: inp.value || null }));
+    inp.addEventListener('blur', () => setTimeout(load, 150));
+    inp.addEventListener('keydown', ev => { if (ev.key === 'Escape') load(); if (ev.key === 'Delete' || ev.key === 'Backspace' && !inp.value) patch(id, { due: null }); });
+  }
+});
+document.addEventListener('dblclick', e => {
+  const title = e.target.closest('[data-act="edit"]');
+  if (!title) return;
+  const id = +title.closest('.task').dataset.id;
+  title.contentEditable = 'true'; title.focus();
+  document.getSelection().selectAllChildren(title);
+  const finish = save => {
+    title.contentEditable = 'false';
+    const v = title.textContent.trim();
+    if (save && v) patch(id, { title: v }); else load();
+  };
+  title.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); finish(true); } if (ev.key === 'Escape') finish(false); };
+  title.onblur = () => finish(true);
+});
+document.addEventListener('keydown', async e => {
+  if (!e.target.classList.contains('col-add')) return;
+  if (e.key === 'Escape') { addingIn = null; return render(); }
+  if (e.key === 'Enter' && e.target.value.trim()) {
+    await api('POST', '/api/tasks', { text: e.target.value, bucket: e.target.dataset.bucket });
+    load();
+  }
+});
+
+$('#kindBtn').onclick = () => { feedKind = { all: 'session', session: 'commit', commit: 'all' }[feedKind]; store.set('feedKind', feedKind); renderFeed(); };
+$('#scanBtn').onclick = async () => { $('#scanBtn').textContent = 'scanning…'; await api('POST', '/api/scan'); $('#scanBtn').textContent = 'rescan'; load(); };
+$('#themeBtn').onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next; store.set('theme', next);
+};
+
+load();
+setInterval(() => { if (!document.hidden && !document.activeElement.isContentEditable && document.activeElement.tagName !== 'INPUT') load(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+</script>
+</body>
+</html>
