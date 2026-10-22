@@ -69,6 +69,15 @@ CREATE INDEX IF NOT EXISTS idx_sessions_end ON sessions(end);
 """
 
 
+SCHEMA_VERSION = 2
+MIGRATIONS = [
+    ("sessions", "git_cmds", "TEXT"),      # text of `git commit` commands the session ran
+    ("sessions", "git_hashes", "TEXT"),    # hex tokens seen in the session's git output
+    ("commits", "session_id", "TEXT"),
+    ("commits", "link", "TEXT"),           # 'claude' = made in the session, 'time' = during it
+]
+
+
 def db():
     DATA.mkdir(exist_ok=True)
     con = sqlite3.connect(DB_PATH, timeout=10)
@@ -76,6 +85,15 @@ def db():
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA busy_timeout=5000")
     con.executescript(SCHEMA)
+    for table, col, typ in MIGRATIONS:
+        cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    v = con.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
+    if not v or int(v[0]) < SCHEMA_VERSION:
+        con.execute("DELETE FROM files")  # force a re-parse of transcripts
+        con.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (str(SCHEMA_VERSION),))
+    con.commit()
     return con
 
 
@@ -266,6 +284,7 @@ def task_rows(con, include_done_days=7):
 
 TS_RE = re.compile(rb'"timestamp":"([^"]+)"')
 TYPE_RE = re.compile(rb'"type":"(user|assistant)"')
+HEX_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
 
 
 def parse_ts(s):
@@ -302,6 +321,7 @@ def parse_session(path):
     s = {"id": path.stem, "cwd": None, "title": None, "recap": None, "first_prompt": None,
          "cost": None, "prompts": 0}
     stamps = []
+    git_ids, git_cmds, git_hashes = set(), [], set()
     with open(path, "rb") as fh:
         for raw in fh:
             if len(raw) > 300_000:  # huge line (images / big tool output): cheap path
@@ -332,6 +352,21 @@ def parse_session(path):
                 if t:
                     stamps.append(t)
                 s["cwd"] = s["cwd"] or d.get("cwd")
+                msg = d.get("message")
+                if isinstance(msg, dict) and isinstance(msg.get("content"), list):
+                    for c in msg["content"]:
+                        if not isinstance(c, dict):
+                            continue
+                        if c.get("type") == "tool_use":
+                            cmd = (c.get("input") or {}).get("command")
+                            if isinstance(cmd, str) and "git " in cmd:
+                                git_ids.add(c.get("id"))
+                                if "commit" in cmd:
+                                    git_cmds.append(cmd[:4000])
+                        elif c.get("type") == "tool_result" and c.get("tool_use_id") in git_ids:
+                            out = c.get("content")
+                            out = out if isinstance(out, str) else json.dumps(out)
+                            git_hashes.update(HEX_RE.findall(out))
                 if typ == "user" and not d.get("isMeta") and isinstance(d.get("message"), dict):
                     txt = prompt_text(d["message"])
                     if txt:
@@ -350,6 +385,8 @@ def parse_session(path):
         days[day] = days.get(day, 0) + add / 60
         prev = t
     s["start"], s["end"] = stamps[0], stamps[-1]
+    s["git_cmds"] = "\n\x1e\n".join(git_cmds)
+    s["git_hashes"] = " ".join(sorted(h[:7] for h in git_hashes))
     s["days"] = days
     s["active_min"] = sum(days.values())
     return s
@@ -371,9 +408,12 @@ def scan_sessions(con):
             if s:
                 bucket, project = classify(s["cwd"])
                 con.execute(
-                    "INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT OR REPLACE INTO sessions (id, bucket, project, cwd, title, first_prompt, recap,"
+                    " start, end, active_min, prompts, cost, git_cmds, git_hashes)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (s["id"], bucket, project, s["cwd"], s["title"], s["first_prompt"], s["recap"],
-                     s["start"], s["end"], s["active_min"], s["prompts"], s["cost"]))
+                     s["start"], s["end"], s["active_min"], s["prompts"], s["cost"],
+                     s["git_cmds"], s["git_hashes"]))
                 con.execute("DELETE FROM session_days WHERE session_id=?", (s["id"],))
                 con.executemany("INSERT INTO session_days VALUES (?,?,?)",
                                 [(s["id"], d, m) for d, m in s["days"].items()])
@@ -442,10 +482,46 @@ def scan_commits(con):
             if len(parts) == 4 and parts[2].lower() in emails:
                 rows.append((parts[0], bucket, project, str(repo), float(parts[1]), parts[3][:300]))
         before = con.total_changes
-        con.executemany("INSERT OR IGNORE INTO commits VALUES (?,?,?,?,?,?)", rows)
+        con.executemany("INSERT OR IGNORE INTO commits (hash, bucket, project, repo, ts, subject)"
+                        " VALUES (?,?,?,?,?,?)", rows)
         added += con.total_changes - before
     con.commit()
     return added
+
+
+def link_commits(con):
+    """Attach each commit to the Claude session it most likely came from.
+
+    'claude': the commit's subject appears in a `git commit` the session ran, or its
+              hash showed up in the session's git output while the session was active.
+    'time'  : same project, committed while the session was open (or shortly after).
+    """
+    before, after = 5 * 60, 30 * 60
+    sessions = {}
+    for r in con.execute("SELECT id, project, start, end, git_cmds, git_hashes FROM sessions"):
+        sessions.setdefault(r["project"], []).append(dict(r))
+    updates = []
+    for c in con.execute("SELECT hash, project, ts, subject FROM commits").fetchall():
+        best, best_rank = None, None
+        subj = (c["subject"] or "").strip()
+        for s in sessions.get(c["project"], []):
+            in_window = s["start"] - before <= c["ts"] <= s["end"] + after
+            near = s["start"] - 86400 <= c["ts"] <= s["end"] + 86400
+            made = (near and len(subj) >= 10 and subj in (s["git_cmds"] or "")) or \
+                   (in_window and c["hash"][:7] in (s["git_hashes"] or "").split())
+            if not (made or in_window):
+                continue
+            inside = s["start"] <= c["ts"] <= s["end"]
+            # prefer: made by Claude > commit inside the session > closest session end
+            rank = (0 if made else 1, 0 if inside else 1, abs(c["ts"] - s["end"]))
+            if best_rank is None or rank < best_rank:
+                best, best_rank = s, rank
+        if best:
+            updates.append((best["id"], "claude" if best_rank[0] == 0 else "time", c["hash"]))
+        else:
+            updates.append((None, None, c["hash"]))
+    con.executemany("UPDATE commits SET session_id=?, link=? WHERE hash=?", updates)
+    con.commit()
 
 
 def scan():
@@ -456,6 +532,7 @@ def scan():
             s = scan_sessions(con)
             c = scan_commits(con)
             reclassify(con)
+            link_commits(con)
             con.execute("INSERT OR REPLACE INTO meta VALUES ('scanned_at', ?)", (str(time.time()),))
             con.commit()
             return {"sessions": s, "commits": c}
@@ -542,8 +619,9 @@ def state(days=7):
             week_min = con.execute(
                 "SELECT COALESCE(SUM(sd.minutes),0) FROM session_days sd JOIN sessions s ON s.id=sd.session_id "
                 "WHERE s.bucket=? AND sd.day>=?", (bid, monday.isoformat())).fetchone()[0]
-            week_commits = con.execute("SELECT COUNT(*) FROM commits WHERE bucket=? AND ts>=?",
-                                       (bid, week_ts)).fetchone()[0]
+            week_commits, week_claude = con.execute(
+                "SELECT COUNT(*), COALESCE(SUM(link='claude'),0) FROM commits WHERE bucket=? AND ts>=?",
+                (bid, week_ts)).fetchone()
             last = con.execute(
                 "SELECT MAX(t) FROM (SELECT MAX(end) t FROM sessions WHERE bucket=? "
                 "UNION ALL SELECT MAX(ts) FROM commits WHERE bucket=?)", (bid, bid)).fetchone()[0]
@@ -554,18 +632,27 @@ def state(days=7):
                 "  UNION ALL SELECT project, 0, 1 FROM commits WHERE bucket=? AND ts>=?)"
                 " GROUP BY project ORDER BY minutes DESC, commits DESC LIMIT 4",
                 (bid, monday.isoformat(), bid, week_ts))]
-            stats[bid] = {"week_min": round(week_min), "week_commits": week_commits, "last": last,
+            stats[bid] = {"week_min": round(week_min), "week_commits": week_commits,
+                          "week_claude_commits": week_claude, "last": last,
                           "daily": [{"day": d, **daily[d]} for d in last7], "projects": projects}
 
-        feed = []
+        feed, by_session = [], {}
         for r in con.execute("SELECT * FROM sessions WHERE end>=? ORDER BY end DESC LIMIT 120", (since,)):
-            feed.append({"kind": "session", "ts": r["end"], "start": r["start"], "bucket": r["bucket"],
-                         "project": r["project"], "title": r["title"] or r["first_prompt"] or "(session)",
-                         "prompt": r["first_prompt"], "recap": r["recap"],
-                         "minutes": round(r["active_min"] or 0), "prompts": r["prompts"], "id": r["id"]})
-        for r in con.execute("SELECT * FROM commits WHERE ts>=? ORDER BY ts DESC LIMIT 200", (since,)):
-            feed.append({"kind": "commit", "ts": r["ts"], "bucket": r["bucket"], "project": r["project"],
-                         "title": r["subject"], "id": r["hash"][:8]})
+            item = {"kind": "session", "ts": r["end"], "start": r["start"], "bucket": r["bucket"],
+                    "project": r["project"], "title": r["title"] or r["first_prompt"] or "(session)",
+                    "prompt": r["first_prompt"], "recap": r["recap"], "commits": [],
+                    "minutes": round(r["active_min"] or 0), "prompts": r["prompts"], "id": r["id"]}
+            by_session[r["id"]] = item
+            feed.append(item)
+        for r in con.execute("SELECT * FROM commits WHERE ts>=? ORDER BY ts DESC LIMIT 300", (since,)):
+            c = {"kind": "commit", "ts": r["ts"], "bucket": r["bucket"], "project": r["project"],
+                 "title": r["subject"], "id": r["hash"][:7], "link": r["link"]}
+            if r["session_id"] in by_session:
+                by_session[r["session_id"]]["commits"].append(c)
+            else:
+                feed.append(c)
+        for item in by_session.values():
+            item["commits"].sort(key=lambda c: c["ts"])
         feed.sort(key=lambda x: x["ts"], reverse=True)
 
         scanned = con.execute("SELECT value FROM meta WHERE key='scanned_at'").fetchone()
