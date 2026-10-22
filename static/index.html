@@ -26,7 +26,11 @@ html, body { margin: 0; background: var(--bg); color: var(--ink);
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
 input { font: inherit; color: inherit; }
-.wrap { max-width: 1440px; margin: 0 auto; padding: 22px 24px 60px; }
+.wrap { max-width: 1440px; margin: 0 auto; padding: 22px 24px 150px; }
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; padding: 14px 24px 6px;
+  background: linear-gradient(to bottom, transparent, var(--bg) 14px); }
+.dock-in { max-width: 1440px; margin: 0 auto; }
+@media (max-width: 640px) { .dock { padding: 10px 12px 4px; } }
 
 /* header */
 header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -58,16 +62,17 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
 .hl .ghost { color: var(--faint); }
 .term .hint { color: var(--faint); font-size: 11.5px; font-family: var(--mono); white-space: nowrap; }
 .term .hint kbd { font: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
-.suggest { position: absolute; left: 34px; top: calc(100% + 4px); z-index: 20; min-width: 300px; max-width: 520px;
+.suggest { position: absolute; left: 34px; bottom: calc(100% + 6px); z-index: 20; min-width: 300px; max-width: 520px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px;
-  box-shadow: 0 8px 28px rgba(0,0,0,.18); font-family: var(--mono); font-size: 13px; }
+  box-shadow: 0 -8px 28px rgba(0,0,0,.22); font-family: var(--mono); font-size: 13px; }
 .suggest:empty { display: none; }
 .sug { display: flex; gap: 10px; align-items: center; padding: 5px 9px; border-radius: 5px; cursor: pointer; }
 .sug.sel { background: var(--hover); }
 .sug .lab { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sug .sub { color: var(--faint); font-size: 12px; white-space: nowrap; }
 .sug .dot { width: 7px; height: 7px; }
-.term-under { display: flex; gap: 14px; align-items: center; min-height: 26px; padding: 4px 16px 10px 38px;
+.term { box-shadow: 0 -6px 24px -10px rgba(0,0,0,.35); }
+.term-under { display: flex; gap: 14px; align-items: center; min-height: 24px; padding: 4px 16px 2px 38px; white-space: nowrap; overflow: hidden;
   font: 12px var(--mono); color: var(--muted); }
 .term-under .parsed { display: flex; gap: 12px; }
 .term-under .ok { color: var(--ink); }
@@ -157,8 +162,7 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
 .stats { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 1100px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
-.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; cursor: pointer; }
-.stat.on { border-color: var(--c); }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
 .stat-h { display: flex; align-items: center; gap: 8px; height: 20px; }
 .stat-h .name { font-weight: 600; }
 .stat-h .ago { margin-left: auto; font: 11px var(--mono); color: var(--faint); }
@@ -176,9 +180,6 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
 /* feed */
 .feed-h { display: flex; align-items: center; gap: 12px; margin: 28px 0 10px; flex-wrap: wrap; }
 .feed-h h2 { font-size: 14px; margin: 0; font-weight: 600; }
-.filters { display: flex; gap: 6px; flex-wrap: wrap; }
-.filters button { font-size: 12px; padding: 2px 9px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
-.filters button.on { color: var(--ink); border-color: var(--muted); background: var(--panel); }
 .day { margin-bottom: 14px; }
 .day-h { font-size: 12px; color: var(--muted); padding: 6px 0; border-bottom: 1px solid var(--line); display: flex; gap: 12px; }
 .day-h b { color: var(--ink); font-weight: 600; }
@@ -221,16 +222,6 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
     <button class="iconbtn" id="themeBtn" title="Toggle theme">theme</button>
   </header>
 
-  <div class="term" id="term">
-    <span class="prompt">›</span>
-    <div class="field">
-      <div class="hl" id="hl" aria-hidden="true"></div>
-      <input id="quick" placeholder="@arqamed finish ai analysis !due today 18:00" autocomplete="off" spellcheck="false">
-    </div>
-    <span class="hint"><kbd>tab</kbd> complete · <kbd>/</kbd> commands</span>
-    <div class="suggest" id="suggest"></div>
-  </div>
-  <div class="term-under" id="under"></div>
 
   <nav class="tabs">
     <button data-tab="board">Board<span class="n" id="nBoard"></span></button>
@@ -247,12 +238,26 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
     <div class="stats" id="stats"></div>
     <div class="feed-h">
       <h2>Activity</h2>
-      <div class="filters" id="filters"></div>
       <div class="spacer"></div>
       <button class="iconbtn" id="kindBtn"></button>
     </div>
     <div id="feed"></div>
   </section>
+</div>
+
+<div class="dock">
+  <div class="dock-in">
+    <div class="term" id="term">
+      <span class="prompt">›</span>
+      <div class="field">
+        <div class="hl" id="hl" aria-hidden="true"></div>
+        <input id="quick" placeholder="@arqamed finish ai analysis !due today 18:00" autocomplete="off" spellcheck="false">
+      </div>
+      <span class="hint"><kbd>tab</kbd> complete · <kbd>/</kbd> commands</span>
+      <div class="suggest" id="suggest"></div>
+    </div>
+    <div class="term-under" id="under"></div>
+  </div>
 </div>
 
 <script>
@@ -262,7 +267,6 @@ const store = {
   set(k, v) { try { localStorage.setItem('unison.' + k, JSON.stringify(v)); } catch {} },
 };
 let S = null;
-let feedFilter = store.get('feedFilter', 'all');
 let feedKind = store.get('feedKind', 'all');
 let feedDays = 3;
 let openDone = new Set();
@@ -402,7 +406,7 @@ function renderStats() {
     }).join('');
     const projects = st.projects.map(p => `<span><b>${esc(p.project)}</b> ${p.minutes ? hrs(p.minutes) : ''}${p.commits ? ' · ' + p.commits + '⎇' : ''}</span>`).join('');
     const pct = st.week_commits ? Math.round(st.week_claude_commits / st.week_commits * 100) : null;
-    return `<div class="stat ${feedFilter === b.id ? 'on' : ''}" style="--c:${b.color}" data-f="${b.id}" title="filter activity by ${esc(b.name)}">
+    return `<div class="stat" style="--c:${b.color}">
       <div class="stat-h"><span class="dot"></span><span class="name">${esc(b.name)}</span>
         <span class="ago ${idleDays > 5 && idleDays < 999 ? 'idle' : ''}" title="last activity">${ago(st.last)}</span></div>
       <div class="nums"><span class="big">${hrs(st.week_min)}</span>
@@ -414,11 +418,9 @@ function renderStats() {
 }
 
 function renderFeed() {
-  $('#filters').innerHTML = [{ id: 'all', name: 'All', color: 'transparent' }, ...S.buckets].map(b =>
-    `<button class="${feedFilter === b.id ? 'on' : ''}" data-f="${b.id}">${b.id !== 'all' ? `<span class="dot" style="--c:${b.color}"></span>` : ''}${esc(b.name)}</button>`).join('');
   $('#kindBtn').textContent = { all: 'sessions + commits', session: 'sessions only', commit: 'commits only' }[feedKind];
 
-  const items = S.feed.filter(x => (feedFilter === 'all' || x.bucket === feedFilter) && (feedKind === 'all' || x.kind === feedKind));
+  const items = S.feed.filter(x => feedKind === 'all' || x.kind === feedKind);
   const days = new Map();
   for (const x of items) {
     const d = localISO(new Date(x.ts * 1000));
@@ -432,7 +434,6 @@ function renderFeed() {
     const mins = xs.filter(x => x.kind === 'session').reduce((a, x) => a + x.minutes, 0);
     const commits = xs.reduce((a, x) => a + (x.kind === 'commit' ? 1 : (x.commits || []).length), 0);
     const sums = Object.entries((S.summaries || {})[d] || {})
-      .filter(([b]) => feedFilter === 'all' || b === feedFilter)
       .sort(([a], [b]) => S.buckets.findIndex(x => x.id === a) - S.buckets.findIndex(x => x.id === b));
     const sumLabel = sums.length ? 'redo summary' : (diff === 0 ? 'summarize today' : 'summarize');
     html += `<div class="day"><div class="day-h"><b>${label}</b><span class="sum">${mins ? '~' + hrs(mins) : ''}${commits ? ' · ' + commits + ' commits' : ''}</span>
@@ -719,8 +720,6 @@ document.addEventListener('keydown', e => {
 // ---- task interactions (event delegation)
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-act]');
-  const f = e.target.closest('[data-f]');
-  if (f) { feedFilter = feedFilter === f.dataset.f && f.dataset.f !== 'all' ? 'all' : f.dataset.f; store.set('feedFilter', feedFilter); renderStats(); return renderFeed(); }
   const sb = e.target.closest('[data-sum]');
   if (sb) {
     sb.textContent = '✦ summarizing…'; sb.disabled = true;
