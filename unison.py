@@ -7,8 +7,11 @@ buckets (Forte, Uni, ArqaMed, ZAP, ...). Standard library only.
   unison serve                  run the dashboard + background scanner
   unison scan                   scan sessions and commits once
   unison add <text> [--cwd D]   add a task  (@bucket  !due fri 18:00  * = pin)
+  unison add - [--cwd D]        add several tasks, one per line on stdin
   unison ls [--all]             list open tasks
-  unison done|pin|doing|rm <id>
+  unison done|doing|todo|pin|unpin|rm <id...>
+  unison due <id> <when|none>   set/clear deadline (fri 18:00, tmr, 30.10)
+  unison rename <id> <title>
   unison summary [day] [bucket] Claude-written summary (day: yesterday, mon, 21.10, ...)
   unison hook-session-start     Claude Code SessionStart hook (reads JSON on stdin)
 """
@@ -1094,13 +1097,22 @@ def main(argv):
                 i = args.index("--cwd")
                 cwd = args[i + 1]
                 args = args[:i] + args[i + 2:]
-            args = [a for a in args if a != "--"]
-            t = parse_task_text(" ".join(args), classify(cwd)[0])
-            if not t["title"]:
-                print("usage: unison add <text> [#bucket] [!due] [*]")
-                return
-            tid = add_task(con, t["title"], t["bucket"], t["due"], t["pinned"])
-            print("added " + fmt_task(dict(con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone())))
+            # `unison add -` reads one task per line from stdin
+            lines = sys.stdin.read().splitlines() if args == ["-"] else [" ".join(a for a in args if a != "--")]
+            default = classify(cwd)[0]
+            added = 0
+            for line in lines:
+                line = line.strip().lstrip("-•").strip()
+                if not line or line.startswith("#!"):
+                    continue
+                t = parse_task_text(line, default)
+                if not t["title"]:
+                    continue
+                tid = add_task(con, t["title"], t["bucket"], t["due"], t["pinned"])
+                print("added " + fmt_task(dict(con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone())))
+                added += 1
+            if not added:
+                print("usage: unison add <text> [@bucket] [!due <date> [time]] [*]   or   unison add -  (one per line on stdin)")
         elif cmd == "ls":
             rows = task_rows(con, 7 if "--all" in args else 0)
             rows = [r for r in rows if "--all" in args or r["status"] != "done"]
@@ -1112,6 +1124,13 @@ def main(argv):
                     print(f"\n{b['name']}")
                     for r in br:
                         print("  " + fmt_task(r))
+        elif cmd == "due" and len(args) >= 2:
+            when = " ".join(args[1:])
+            update_task(con, int(args[0]), {"due_text": "" if when in ("none", "clear", "-") else when})
+            print(fmt_task(dict(con.execute("SELECT * FROM tasks WHERE id=?", (int(args[0]),)).fetchone())))
+        elif cmd == "rename" and len(args) >= 2:
+            update_task(con, int(args[0]), {"title": " ".join(a for a in args[1:] if a != "--")})
+            print(fmt_task(dict(con.execute("SELECT * FROM tasks WHERE id=?", (int(args[0]),)).fetchone())))
         elif cmd in ("done", "doing", "todo", "pin", "unpin", "rm") and args:
             for a in args:
                 tid = int(a)

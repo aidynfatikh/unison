@@ -11,6 +11,8 @@ systemctl --user enable --now unison.service
 systemctl --user restart unison.service
 
 cp "$DIR/claude/todo.md" ~/.claude/commands/todo.md
+mkdir -p ~/.claude/skills
+ln -sfn "$DIR/claude/skills/unison" ~/.claude/skills/unison
 
 # Add SessionStart hook to ~/.claude/settings.json (idempotent, keeps a backup).
 python3 - "$DIR" <<'PY'
