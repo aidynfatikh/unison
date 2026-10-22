@@ -6,7 +6,7 @@ buckets (Forte, Uni, ArqaMed, ZAP, ...). Standard library only.
 
   unison serve                  run the dashboard + background scanner
   unison scan                   scan sessions and commits once
-  unison add <text> [--cwd D]   add a task  (#bucket  !due  * = pin)
+  unison add <text> [--cwd D]   add a task  (@bucket  !due fri 18:00  * = pin)
   unison ls [--all]             list open tasks
   unison done|pin|doing|rm <id>
   unison summary [day] [bucket] Claude-written summary (day: yesterday, mon, 21.10, ...)
@@ -168,11 +168,16 @@ def classify(path):
     return bucket, project
 
 
-def resolve_bucket(name):
+def resolve_bucket(name, prefix=False):
     n = name.lower()
     for b in CFG["buckets"]:
         if n == b["id"] or n == b["name"].lower() or n in b.get("aliases", []):
             return b["id"]
+    if prefix and n:
+        hits = {b["id"] for b in CFG["buckets"]
+                if any(w.startswith(n) for w in [b["id"], b["name"].lower(), *b.get("aliases", [])])}
+        if len(hits) == 1:
+            return hits.pop()
     return None
 
 
@@ -221,23 +226,90 @@ def parse_due(tok, today=None):
     return None
 
 
+def parse_time(tok):
+    """'18:00', '9:30', '18h', '6pm', '6:30pm' -> 'HH:MM' (a bare number is not a time)."""
+    m = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?(am|pm|h)?", tok.lower().strip())
+    if not m or (m.group(2) is None and m.group(3) is None):
+        return None
+    h, mi = int(m.group(1)), int(m.group(2) or 0)
+    if m.group(3) == "pm" and h < 12:
+        h += 12
+    if m.group(3) == "am" and h == 12:
+        h = 0
+    return f"{h:02d}:{mi:02d}" if h < 24 and mi < 60 else None
+
+
+def parse_when(expr, today=None):
+    """'today', 'fri', 'fri@14:00', '18:00' -> (date | None, 'HH:MM' | None)."""
+    today = today or date.today()
+    if "@" in expr:
+        d, t = expr.split("@", 1)
+        d, t = parse_due(d, today), parse_time(t)
+        return (d, t) if d and t else (None, None)
+    t = parse_time(expr)
+    if t:  # time only: today, or tomorrow if that time has passed
+        d = today if t > datetime.now().strftime("%H:%M") or today != date.today() else today + timedelta(days=1)
+        return d, t
+    return parse_due(expr, today), None
+
+
+def fmt_due(d, t):
+    return (d.isoformat() + (f"T{t}" if t else "")) if d else None
+
+
 def parse_task_text(text, default_bucket=None):
-    title, bucket, due, pinned = [], None, None, False
-    for tok in text.split():
-        if tok.startswith("#") and len(tok) > 1 and resolve_bucket(tok[1:]):
-            bucket = resolve_bucket(tok[1:])
-        elif tok.startswith("!") and len(tok) > 1 and parse_due(tok[1:]):
-            due = parse_due(tok[1:])
+    """Task grammar: free text plus
+         @bucket | #bucket        bucket (unique prefix ok: @arq)
+         !today  !fri  !30.10     deadline        !due <date> [time]  also works
+         !fri@14:00  !18:00       deadline with time; a time may also follow the date: !today 18:00
+         *                        pin
+    """
+    toks = text.split()
+    title, bucket, due_d, due_t, pinned = [], None, None, None, False
+    i = 0
+    while i < len(toks):
+        tok, low = toks[i], toks[i].lower()
+        if tok[:1] in "@#" and len(tok) > 1 and resolve_bucket(tok[1:], prefix=True):
+            bucket = resolve_bucket(tok[1:], prefix=True)
         elif tok in ("*", "!pin", "📌"):
             pinned = True
+        elif low.startswith("!") and len(low) > 1:
+            expr = low[1:]
+            if expr == "due":
+                nxt = toks[i + 1].lower() if i + 1 < len(toks) else ""
+                if nxt and any(parse_when(nxt)):
+                    i += 1
+                    expr = nxt
+                else:
+                    i += 1
+                    continue
+            d, t = parse_when(expr)
+            if d is None:
+                title.append(tok)
+            else:
+                due_d, due_t = d, t
+                if t is None and i + 1 < len(toks) and parse_time(toks[i + 1]):
+                    due_t = parse_time(toks[i + 1])
+                    i += 1
         else:
             title.append(tok)
+        i += 1
     return {
         "title": " ".join(title).strip(),
         "bucket": bucket or default_bucket or CFG["default_bucket"],
-        "due": due.isoformat() if due else None,
+        "due": fmt_due(due_d, due_t),
         "pinned": pinned,
     }
+
+
+def due_parts(due):
+    """'2026-10-23T18:00' -> (date, '18:00'); '2026-10-23' -> (date, None)."""
+    return date.fromisoformat(due[:10]), (due[11:16] or None)
+
+
+def due_dt(due):
+    d, t = due_parts(due)
+    return datetime.combine(d, datetime.strptime(t or "23:59", "%H:%M").time())
 
 
 # ---------------------------------------------------------------- tasks
@@ -252,6 +324,11 @@ def add_task(con, title, bucket, due=None, pinned=False):
 
 
 def update_task(con, tid, fields):
+    if "due_text" in fields:  # free-form: 'fri 18:00', 'tmr', '' to clear
+        txt = (fields.pop("due_text") or "").strip()
+        fields["due"] = parse_task_text("x !due " + txt)["due"] if txt else None
+        if txt and not fields["due"]:
+            raise ValueError(f"can't read date: {txt}")
     allowed = {"title", "bucket", "due", "pinned", "status"}
     sets, vals = [], []
     for k, v in fields.items():
@@ -267,7 +344,10 @@ def update_task(con, tid, fields):
         if k == "bucket" and v not in BUCKETS:
             continue
         if k == "due" and v:
-            v = date.fromisoformat(v).isoformat()
+            d, t = due_parts(v)
+            if t:
+                datetime.strptime(t, "%H:%M")
+            v = fmt_due(d, t)
         sets.append(f"{k}=?")
         vals.append(v or None if k == "due" else v)
     if not sets:
@@ -562,23 +642,39 @@ def send_notification(title, body):
 
 
 def check_reminders():
+    """Morning digest of overdue/today/tomorrow tasks, plus a heads-up before timed deadlines."""
     n = CFG.get("notify", {})
-    if not n.get("enabled", True) or datetime.now().hour < n.get("hour", 9):
+    if not n.get("enabled", True):
         return
-    today = date.today()
+    now, today = datetime.now(), date.today()
+    bname = lambda r: BUCKETS.get(r["bucket"], {}).get("name", r["bucket"])
     con = db()
     try:
+        # 1) timed tasks due within the lead time (once per task per deadline)
+        lead = timedelta(minutes=n.get("lead_minutes", 60))
+        for r in con.execute("SELECT * FROM tasks WHERE status!='done' AND due LIKE '%T%'").fetchall():
+            key = "soon:" + r["due"]
+            if now <= due_dt(r["due"]) <= now + lead and not con.execute(
+                    "SELECT 1 FROM notified WHERE task_id=? AND day=?", (r["id"], key)).fetchone():
+                mins = max(1, round((due_dt(r["due"]) - now).total_seconds() / 60))
+                send_notification(f"Due in {mins} min: {r['title']}", f"{bname(r)} · {r['due'][11:16]}")
+                con.execute("INSERT OR IGNORE INTO notified VALUES (?,?)", (r["id"], key))
+        con.commit()
+
+        # 2) morning digest
+        if now.hour < n.get("hour", 9):
+            return
         rows = con.execute(
-            "SELECT * FROM tasks WHERE status!='done' AND due IS NOT NULL AND due<=? "
+            "SELECT * FROM tasks WHERE status!='done' AND due IS NOT NULL AND substr(due,1,10)<=? "
             "AND id NOT IN (SELECT task_id FROM notified WHERE day=?) ORDER BY due",
             ((today + timedelta(days=1)).isoformat(), today.isoformat())).fetchall()
         if not rows:
             return
         lines = []
         for r in rows:
-            d = date.fromisoformat(r["due"])
-            when = "overdue" if d < today else "today" if d == today else "tomorrow"
-            lines.append(f"• {r['title']} ({BUCKETS.get(r['bucket'], {}).get('name', r['bucket'])}, {when})")
+            d, t = due_parts(r["due"])
+            when = "overdue" if due_dt(r["due"]) < now else "today" if d == today else "tomorrow"
+            lines.append(f"• {r['title']} ({bname(r)}, {when}{' ' + t if t else ''})")
         send_notification(f"{len(rows)} task{'s' if len(rows) > 1 else ''} due", "\n".join(lines))
         con.executemany("INSERT OR IGNORE INTO notified VALUES (?,?)",
                         [(r["id"], today.isoformat()) for r in rows])
@@ -838,6 +934,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+        elif path == "/api/parse":
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
+            self._json(parse_task_text(q.get("text", [""])[0], q.get("bucket", [None])[0]))
         elif path == "/api/state":
             m = re.search(r"days=(\d+)", self.path)
             self._json(state(min(int(m.group(1)), 90) if m else 7))
@@ -908,10 +1008,12 @@ def fmt_task(r, today=None):
     today = today or date.today()
     due = ""
     if r["due"]:
-        d = date.fromisoformat(r["due"])
+        d, t = due_parts(r["due"])
         delta = (d - today).days
-        due = " · overdue" if delta < 0 else " · today" if delta == 0 else " · tomorrow" if delta == 1 \
-            else f" · {d.strftime('%a %d %b')}"
+        due = " · overdue" if due_dt(r["due"]) < datetime.now() else " · today" if delta == 0 \
+            else " · tomorrow" if delta == 1 else f" · {d.strftime('%a %d %b')}"
+        if t and not due.endswith("overdue"):
+            due += f" {t}"
     mark = "📌 " if r["pinned"] else ""
     status = "▶ " if r["status"] == "doing" else "✓ " if r["status"] == "done" else ""
     return f"[{r['id']}] {mark}{status}{r['title']} ({BUCKETS.get(r['bucket'], {}).get('name', r['bucket'])}{due})"
@@ -934,7 +1036,7 @@ def hook_session_start():
         soon = (today + timedelta(days=2)).isoformat()
         con = db()
         rows = con.execute(
-            "SELECT * FROM tasks WHERE status!='done' AND (bucket=? OR pinned=1 OR (due IS NOT NULL AND due<=?))",
+            "SELECT * FROM tasks WHERE status!='done' AND (bucket=? OR pinned=1 OR (due IS NOT NULL AND substr(due,1,10)<=?))",
             (bucket, soon)).fetchall()
         con.close()
         if not rows:
@@ -946,7 +1048,7 @@ def hook_session_start():
         for r in rows:
             print("  " + fmt_task(r, today))
         print("If the user finishes one of these, you may mark it with `unison done <id>`. "
-              "New follow-ups can be added with `unison add \"<text> #bucket !due\"`. Don't mention this list unless relevant.")
+              "New follow-ups can be added with `unison add \"<text> @bucket !due fri 18:00\"`. Don't mention this list unless relevant.")
     except Exception:
         pass
 
