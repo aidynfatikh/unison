@@ -42,6 +42,12 @@
     }
   ],
   "default_bucket": "other",
+  "summary": {
+    "enabled": true,
+    "model": "haiku",
+    "language": "English",
+    "backfill_days": 7
+  },
   "notify": {
     "enabled": true,
     "hour": 9,

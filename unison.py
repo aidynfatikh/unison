@@ -9,9 +9,11 @@ buckets (Forte, Uni, ArqaMed, ZAP, ...). Standard library only.
   unison add <text> [--cwd D]   add a task  (#bucket  !due  * = pin)
   unison ls [--all]             list open tasks
   unison done|pin|doing|rm <id>
+  unison summary [day] [bucket] Claude-written summary (day: yesterday, mon, 21.10, ...)
   unison hook-session-start     Claude Code SessionStart hook (reads JSON on stdin)
 """
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -46,6 +48,7 @@ def load_config():
 CFG = load_config()
 BUCKETS = {b["id"]: b for b in CFG["buckets"]}
 SCAN_LOCK = threading.Lock()
+SUMMARY_LOCK = threading.Lock()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -63,6 +66,8 @@ CREATE TABLE IF NOT EXISTS commits (
 CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime REAL, size INTEGER);
 CREATE TABLE IF NOT EXISTS notified (task_id INTEGER, day TEXT, PRIMARY KEY (task_id, day));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS summaries (
+  day TEXT, bucket TEXT, text TEXT, created REAL, fp TEXT, PRIMARY KEY (day, bucket));
 CREATE INDEX IF NOT EXISTS idx_sd_day ON session_days(day);
 CREATE INDEX IF NOT EXISTS idx_commits_ts ON commits(ts);
 CREATE INDEX IF NOT EXISTS idx_sessions_end ON sessions(end);
@@ -582,11 +587,140 @@ def check_reminders():
         con.close()
 
 
+# ---------------------------------------------------------------- daily summaries
+
+SUMMARY_SYSTEM = (
+    "You write a person's private daily work log. You get raw activity for one work area on one day: "
+    "Claude Code sessions (title, first prompt, the assistant's recap, minutes) and git commits. "
+    "Write 2-4 terse bullet lines (never more than 4, each under 30 words) starting with '- ' saying what actually got done or decided, concrete "
+    "(features, fixes, investigations, decisions), merging duplicates and skipping noise. Name the project "
+    "when there is more than one. If something is clearly left open, end with one line 'Next: ...'. "
+    "Plain text, no headings, no preamble, no praise, no time totals. Write in {lang}."
+)
+
+
+def day_bounds(day):
+    start = datetime.combine(date.fromisoformat(day), datetime.min.time()).timestamp()
+    return start, start + 86400
+
+
+def gather_day(con, day, bucket):
+    """Plain-text activity digest for one bucket on one day ('' if nothing happened)."""
+    t0, t1 = day_bounds(day)
+    lines = []
+    sessions = con.execute(
+        "SELECT s.*, sd.minutes day_min FROM session_days sd JOIN sessions s ON s.id=sd.session_id "
+        "WHERE sd.day=? AND s.bucket=? AND sd.minutes>=2 ORDER BY s.start", (day, bucket)).fetchall()
+    for s in sessions:
+        lines.append(f"SESSION [{s['project']}] {round(s['day_min'])} min: {s['title'] or ''}")
+        if s["first_prompt"]:
+            lines.append(f"  first prompt: {s['first_prompt'][:300]}")
+        if s["recap"]:
+            lines.append(f"  recap: {s['recap'][:600]}")
+        for c in con.execute("SELECT subject FROM commits WHERE session_id=? AND ts>=? AND ts<? ORDER BY ts",
+                             (s["id"], t0, t1)):
+            lines.append(f"  commit: {c['subject']}")
+    for c in con.execute(
+            "SELECT project, subject FROM commits WHERE bucket=? AND ts>=? AND ts<? AND "
+            "(session_id IS NULL OR session_id NOT IN (SELECT session_id FROM session_days WHERE day=?)) ORDER BY ts",
+            (bucket, t0, t1, day)):
+        lines.append(f"COMMIT [{c['project']}] {c['subject']}")
+    for t in con.execute("SELECT title FROM tasks WHERE bucket=? AND status='done' AND done_at>=? AND done_at<?",
+                         (bucket, t0, t1)):
+        lines.append(f"TASK DONE: {t['title']}")
+    return "\n".join(lines)
+
+
+def run_claude(system, prompt):
+    cfg = CFG.get("summary", {})
+    exe = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude")
+    r = subprocess.run(
+        [exe, "-p", "--model", cfg.get("model", "haiku"), "--no-session-persistence", "--tools", "",
+         "--setting-sources", "", "--strict-mcp-config", "--no-chrome", "--system-prompt", system],
+        input=prompt, capture_output=True, text=True, timeout=180, cwd=str(DATA))
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout).strip()[:300])
+    return r.stdout.strip()
+
+
+def summarize(day, bucket, force=False):
+    """Create/refresh the summary for (day, bucket). Returns text, or None if no activity."""
+    con = db()
+    try:
+        digest = gather_day(con, day, bucket)
+        if not digest:
+            return None
+        fp = hashlib.sha1(digest.encode()).hexdigest()
+        row = con.execute("SELECT text, fp FROM summaries WHERE day=? AND bucket=?", (day, bucket)).fetchone()
+        if row and row["fp"] == fp and not force:
+            return row["text"]
+    finally:
+        con.close()
+    name = BUCKETS[bucket]["name"]
+    nice_day = date.fromisoformat(day).strftime("%A %d %B %Y")
+    text = run_claude(SUMMARY_SYSTEM.format(lang=CFG.get("summary", {}).get("language", "English")),
+                      f"Work area: {name}\nDay: {nice_day}\n\nActivity:\n{digest[:20000]}")
+    con = db()
+    try:
+        con.execute("INSERT OR REPLACE INTO summaries VALUES (?,?,?,?,?)", (day, bucket, text, time.time(), fp))
+        con.commit()
+    finally:
+        con.close()
+    return text
+
+
+def summarize_day(day, force=False):
+    """Summarize every bucket for a day, in parallel."""
+    out, threads = {}, []
+
+    def work(b):
+        try:
+            out[b] = summarize(day, b, force)
+        except Exception as e:
+            out[b] = None
+            print(f"summary {day} {b} failed: {e}", file=sys.stderr, flush=True)
+
+    with SUMMARY_LOCK:
+        for b in BUCKETS:
+            th = threading.Thread(target=work, args=(b,))
+            th.start()
+            threads.append(th)
+        for th in threads:
+            th.join()
+    return out
+
+
+def auto_summaries():
+    """Summarize finished days that have no summary yet (yesterday, plus a small backfill)."""
+    cfg = CFG.get("summary", {})
+    if not cfg.get("enabled", True):
+        return
+    today = date.today()
+    con = db()
+    try:
+        days = [(today - timedelta(days=i)).isoformat() for i in range(1, cfg.get("backfill_days", 7) + 1)]
+        todo = []
+        for d in days:
+            active = {r[0] for r in con.execute(
+                "SELECT DISTINCT s.bucket FROM session_days sd JOIN sessions s ON s.id=sd.session_id "
+                "WHERE sd.day=? AND sd.minutes>=2", (d,))}
+            t0, t1 = day_bounds(d)
+            active |= {r[0] for r in con.execute("SELECT DISTINCT bucket FROM commits WHERE ts>=? AND ts<?", (t0, t1))}
+            have = {r[0] for r in con.execute("SELECT bucket FROM summaries WHERE day=?", (d,))}
+            if active - have:
+                todo.append(d)
+    finally:
+        con.close()
+    for d in todo:
+        summarize_day(d)
+
+
 def background_loop():
     while True:
         try:
             scan()
             check_reminders()
+            auto_summaries()
         except Exception as e:
             print("scan error:", e, file=sys.stderr, flush=True)
         time.sleep(CFG["scan_interval_minutes"] * 60)
@@ -655,6 +789,10 @@ def state(days=7):
             item["commits"].sort(key=lambda c: c["ts"])
         feed.sort(key=lambda x: x["ts"], reverse=True)
 
+        summaries = {}
+        first_day = (today - timedelta(days=days)).isoformat()
+        for r in con.execute("SELECT day, bucket, text, created FROM summaries WHERE day>=?", (first_day,)):
+            summaries.setdefault(r["day"], {})[r["bucket"]] = {"text": r["text"], "created": r["created"]}
         scanned = con.execute("SELECT value FROM meta WHERE key='scanned_at'").fetchone()
         return {
             "today": today.isoformat(),
@@ -662,6 +800,7 @@ def state(days=7):
             "tasks": task_rows(con),
             "stats": stats,
             "feed": feed[:250],
+            "summaries": summaries,
             "scanned_at": float(scanned[0]) if scanned else None,
         }
     finally:
@@ -721,6 +860,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"id": tid, **t})
             if path == "/api/scan":
                 return self._json(scan())
+            if path == "/api/summarize":
+                b = self._body()
+                day = date.fromisoformat(b.get("day") or date.today().isoformat()).isoformat()
+                return self._json(summarize_day(day, force=bool(b.get("force"))))
         except Exception as e:
             return self._json({"error": str(e)}, 400)
         self._json({"error": "not found"}, 404)
@@ -822,6 +965,25 @@ def main(argv):
         return
     if cmd == "hook-session-start":
         return hook_session_start()
+    if cmd == "summary":
+        # unison summary [day|yesterday] [bucket] [--force]
+        force = "--force" in args
+        args = [a for a in args if a != "--force"]
+        day = date.today()
+        if args and (parse_due(args[0]) or args[0] in ("yesterday", "yd")):
+            day = date.today() - timedelta(days=1) if args[0] in ("yesterday", "yd") else parse_due(args[0])
+            if day > date.today():  # weekday names mean the past one here
+                day -= timedelta(days=7)
+            args = args[1:]
+        only = resolve_bucket(args[0]) if args else None
+        print(day.strftime("%A %d %B"))
+        res = {only: summarize(day.isoformat(), only, force)} if only else summarize_day(day.isoformat(), force)
+        for b, text in res.items():
+            if text:
+                print(f"\n{BUCKETS[b]['name']}\n{text}")
+        if not any(res.values()):
+            print("no activity")
+        return
     con = db()
     try:
         if cmd == "add":

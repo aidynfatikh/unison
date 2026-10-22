@@ -123,6 +123,14 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
 .subc div { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .subc .k { display: inline-block; width: 14px; color: var(--c); }
 .subc .time-link .k { color: var(--faint); }
+.sums { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 8px; margin: 10px 0 6px; }
+.sum-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--c); border-radius: 8px; padding: 9px 12px; position: relative; }
+.sum-card h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.sum-card p { margin: 0; font-size: 12.5px; color: var(--ink); white-space: pre-wrap; line-height: 1.5; }
+.sum-card .copy { margin-left: auto; font-size: 11px; color: var(--faint); font-weight: 400; }
+.sum-card .copy:hover { color: var(--ink); }
+.sum-btn { font-size: 11px; color: var(--faint); margin-left: auto; }
+.sum-btn:hover { color: var(--ink); }
 .more { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .more:hover { color: var(--ink); }
 </style>
@@ -293,7 +301,15 @@ function renderFeed() {
     const label = diff === 0 ? 'Today' : diff === -1 ? 'Yesterday' : new Date(d + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
     const mins = xs.filter(x => x.kind === 'session').reduce((a, x) => a + x.minutes, 0);
     const commits = xs.reduce((a, x) => a + (x.kind === 'commit' ? 1 : (x.commits || []).length), 0);
-    html += `<div class="day"><div class="day-h"><b>${label}</b><span class="sum">${mins ? '~' + hrs(mins) : ''}${commits ? ' · ' + commits + ' commits' : ''}</span></div>`;
+    const sums = Object.entries((S.summaries || {})[d] || {})
+      .filter(([b]) => feedFilter === 'all' || b === feedFilter)
+      .sort(([a], [b]) => S.buckets.findIndex(x => x.id === a) - S.buckets.findIndex(x => x.id === b));
+    const sumLabel = sums.length ? 'redo summary' : (diff === 0 ? 'summarize today' : 'summarize');
+    html += `<div class="day"><div class="day-h"><b>${label}</b><span class="sum">${mins ? '~' + hrs(mins) : ''}${commits ? ' · ' + commits + ' commits' : ''}</span>
+      <button class="sum-btn" data-sum="${d}" data-force="${sums.length ? 1 : 0}">✦ ${sumLabel}</button></div>`;
+    if (sums.length) html += `<div class="sums">${sums.map(([b, x]) => `<div class="sum-card" style="--c:${B(b).color}">
+      <h4><span class="dot"></span>${esc(B(b).name)}<button class="copy" data-copy="${esc(B(b).name + ' — ' + label + '\n' + x.text)}">copy</button></h4>
+      <p>${esc(x.text)}</p></div>`).join('')}</div>`;
     for (const x of xs) {
       const b = B(x.bucket);
       const t = new Date(x.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -345,6 +361,14 @@ document.addEventListener('click', async e => {
   const el = e.target.closest('[data-act]');
   const f = e.target.closest('[data-f]');
   if (f) { feedFilter = f.dataset.f; store.set('feedFilter', feedFilter); return renderFeed(); }
+  const sb = e.target.closest('[data-sum]');
+  if (sb) {
+    sb.textContent = '✦ summarizing…'; sb.disabled = true;
+    await api('POST', '/api/summarize', { day: sb.dataset.sum, force: sb.dataset.force === '1' });
+    return load();
+  }
+  const cp = e.target.closest('[data-copy]');
+  if (cp) { try { await navigator.clipboard.writeText(cp.dataset.copy); cp.textContent = 'copied'; } catch {} return; }
   if (!el) return;
   const act = el.dataset.act;
   const col = el.closest('.col');
