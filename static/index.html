@@ -73,63 +73,108 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
 .term-under .ok { color: var(--ink); }
 .term-under .err { color: var(--red); }
 
-/* pinned */
-.pinned { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
-.pin-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--c);
-  border-radius: 8px; padding: 8px 12px; display: flex; gap: 10px; align-items: center; min-width: 220px; max-width: 420px; }
-.pin-card .t { flex: 1; }
-
-/* board */
-.board { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; align-items: stretch; }
-@media (max-width: 1100px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .board { grid-template-columns: 1fr; } .wrap { padding: 16px; } .add .hint { display: none; } .pin-card { min-width: 0; max-width: none; flex: 1 1 100%; } }
-.col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 14px 12px;
-  display: flex; flex-direction: column; min-height: 250px; }
-.col-foot { margin-top: auto; border-top: 1px solid var(--line); padding-top: 10px; }
-.col-h { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+/* tabs */
+.tabs { display: flex; gap: 4px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); }
+.tabs button { padding: 8px 12px; color: var(--muted); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button:hover { color: var(--ink); }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--ink); }
+.tabs .n { font: 11px var(--mono); color: var(--faint); margin-left: 5px; }
+.tabs .kbd { margin-left: auto; align-self: center; font: 11px var(--mono); color: var(--faint); }
+.view { display: none; }
+.view.on { display: block; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
-.col-h .name { font-weight: 600; }
-.col-h .count { color: var(--faint); font-size: 12px; }
-.col-h .plus { margin-left: auto; color: var(--faint); font-size: 18px; line-height: 1; padding: 0 4px; border-radius: 4px; }
-.col-h .plus:hover { color: var(--ink); background: var(--hover); }
-.col-stats { display: flex; gap: 12px; color: var(--muted); font-size: 12px; font-family: var(--mono); margin-bottom: 8px; white-space: nowrap; }
-.col-stats .idle { color: var(--amber); }
-.spark { display: flex; gap: 3px; align-items: flex-end; height: 28px; }
-.spark i { flex: 1; background: var(--c); opacity: .85; border-radius: 2px; min-height: 2px; }
-.spark i.zero { background: var(--line); opacity: 1; }
-.projects { font-size: 12px; line-height: 18px; color: var(--muted); margin-bottom: 6px; display: flex; flex-wrap: wrap;
-  gap: 0 10px; height: 36px; overflow: hidden; align-content: flex-start; }
-.projects b { font-weight: 500; color: var(--ink); }
-.tasks { padding: 6px 0 10px; }
 .empty { color: var(--faint); font-size: 12px; padding: 8px 2px; }
 
-.task { display: flex; align-items: flex-start; gap: 8px; padding: 5px 4px; border-radius: 6px; position: relative; }
-.task:hover { background: var(--hover); }
+/* board: pinboard */
+.pinboard { position: relative; border: 1px solid var(--line); border-radius: 14px; padding: 26px 20px 20px; margin-bottom: 22px;
+  background-color: var(--panel);
+  background-image: radial-gradient(color-mix(in srgb, var(--faint) 45%, transparent) 1px, transparent 1px);
+  background-size: 16px 16px; }
+.pinboard .label { position: absolute; top: 8px; left: 14px; font: 11px var(--mono); color: var(--faint); letter-spacing: .06em; text-transform: uppercase; }
+.notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 22px 16px; padding-top: 6px; }
+.note { --tint: color-mix(in srgb, var(--c) 10%, var(--panel)); position: relative; background: var(--tint);
+  border: 1px solid color-mix(in srgb, var(--c) 28%, var(--line)); border-radius: 8px; padding: 16px 14px 10px;
+  min-height: 112px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.05), 0 10px 18px -12px rgba(0,0,0,.45); cursor: grab; }
+.note::before { content: ''; position: absolute; top: -6px; left: 50%; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, color-mix(in srgb, var(--c) 55%, #fff), var(--c) 60%);
+  box-shadow: 0 2px 3px rgba(0,0,0,.35); }
+.note .title { font-size: 14.5px; font-weight: 500; line-height: 1.4; word-wrap: break-word; outline: 0; }
+.note .foot { margin-top: auto; display: flex; align-items: center; gap: 8px; min-height: 22px; }
+.note .bk { font: 11px var(--mono); color: var(--c); }
+.pin-empty { color: var(--faint); font-size: 12.5px; padding: 6px 0 2px; }
+
+/* board: lanes */
+.lanes { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+@media (max-width: 1100px) { .lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .lanes { grid-template-columns: 1fr; } .wrap { padding: 16px; } .term .hint { display: none; } }
+.lane { background: color-mix(in srgb, var(--panel) 55%, transparent); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 10px 10px; min-height: 260px; display: flex; flex-direction: column; gap: 8px; }
+.lane-h { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; border-bottom: 2px solid var(--c); margin-bottom: 2px; }
+.lane-h .name { font-weight: 600; }
+.lane-h .count { color: var(--faint); font: 12px var(--mono); }
+.lane-h .plus { margin-left: auto; color: var(--faint); font-size: 18px; line-height: 1; padding: 0 5px; border-radius: 4px; }
+.lane-h .plus:hover { color: var(--ink); background: var(--hover); }
+.lane .empty { text-align: center; padding: 22px 0; }
+.drop-over { outline: 2px dashed var(--c, var(--muted)); outline-offset: -4px; }
+.pinboard.drop-over { outline-color: var(--muted); }
+.dragging { opacity: .35; }
+
+/* task cards */
+.task { display: flex; align-items: flex-start; gap: 9px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 9px 10px; position: relative; cursor: grab; }
+.task:hover { border-color: color-mix(in srgb, var(--c) 45%, var(--line)); }
+.task.doing { border-left: 3px solid var(--c); padding-left: 8px; }
 .check { width: 15px; height: 15px; border: 1.5px solid var(--faint); border-radius: 4px; flex: none; margin-top: 2px; }
 .check:hover { border-color: var(--c); }
-.task.doing .check { border-color: var(--c); background: linear-gradient(90deg, var(--c) 50%, transparent 50%); }
+.task.doing .check, .note.doing .check { border-color: var(--c); background: linear-gradient(90deg, var(--c) 50%, transparent 50%); }
 .task.done .check { background: var(--c); border-color: var(--c); }
-.task.done .title { color: var(--faint); text-decoration: line-through; }
+.task.done { opacity: .6; }
+.task.done .title { text-decoration: line-through; }
 .task .body { flex: 1; min-width: 0; }
-.task .title { word-wrap: break-word; outline: 0; }
-.task .title[contenteditable="true"] { background: var(--bg); border-radius: 3px; padding: 0 3px; }
-.chips { display: flex; gap: 6px; margin-top: 1px; }
+.task .title { word-wrap: break-word; outline: 0; line-height: 1.4; }
+[contenteditable="true"] { background: var(--bg); border-radius: 3px; padding: 0 3px; cursor: text; }
+.chips { display: flex; gap: 8px; margin-top: 3px; }
+.chips:empty { display: none; }
 .chip { font-size: 11px; font-family: var(--mono); color: var(--muted); }
-.chip.over { color: var(--red); font-weight: 600; }
+.chip.over { color: var(--red); font-weight: 600; outline: 0; }
 .chip.soon { color: var(--amber); font-weight: 600; }
 .chip.doing { color: var(--c); }
-.actions { display: none; gap: 2px; flex: none; }
-.task:hover .actions { display: flex; }
+.actions { display: flex; gap: 1px; flex: none; opacity: 0; transition: opacity .1s; }
+.task:hover .actions, .note:hover .actions { opacity: 1; }
+.note .actions { margin-left: auto; }
+.task .actions { position: absolute; top: 5px; right: 5px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 1px; box-shadow: 0 4px 10px rgba(0,0,0,.15); pointer-events: none; }
+.task:hover .actions { pointer-events: auto; }
 .actions button { font-size: 12px; color: var(--faint); padding: 1px 4px; border-radius: 4px; }
-.actions button:hover { color: var(--ink); background: var(--panel); }
-.pinbtn.on { color: var(--ink); }
+.actions button:hover { color: var(--ink); background: var(--hover); }
 .date-in { font-size: 11px; font-family: var(--mono); border: 1px solid var(--line); border-radius: 4px; background: var(--panel); padding: 0 4px; }
-.done-toggle { font-size: 12px; color: var(--faint); padding: 6px 4px 2px; }
+.done-toggle { font-size: 12px; color: var(--faint); padding: 4px; margin-top: auto; text-align: left; }
 .done-toggle:hover { color: var(--ink); }
-.col-add { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: var(--bg); outline: 0; margin: 4px 0; font-size: 13px; }
+.col-add { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); outline: 0; font-size: 13px; }
+
+/* activity: bucket stats */
+.stats { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1100px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; cursor: pointer; }
+.stat.on { border-color: var(--c); }
+.stat-h { display: flex; align-items: center; gap: 8px; height: 20px; }
+.stat-h .name { font-weight: 600; }
+.stat-h .ago { margin-left: auto; font: 11px var(--mono); color: var(--faint); }
+.stat-h .ago.idle { color: var(--amber); }
+.nums { display: flex; align-items: baseline; gap: 14px; margin: 10px 0 12px; height: 30px; white-space: nowrap; }
+.nums .big { font: 600 24px/1 var(--mono); letter-spacing: -.02em; }
+.nums .small { font: 12px var(--mono); color: var(--muted); }
+.spark { display: flex; gap: 3px; align-items: flex-end; height: 34px; }
+.spark i { flex: 1; background: var(--c); opacity: .85; border-radius: 2px; min-height: 2px; }
+.spark i.zero { background: var(--line); opacity: 1; }
+.projects { font-size: 12px; line-height: 18px; color: var(--muted); margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 0 10px; height: 47px; overflow: hidden; align-content: flex-start; }
+.projects b { font-weight: 500; color: var(--ink); }
 
 /* feed */
-.feed-h { display: flex; align-items: center; gap: 12px; margin: 34px 0 10px; flex-wrap: wrap; }
+.feed-h { display: flex; align-items: center; gap: 12px; margin: 28px 0 10px; flex-wrap: wrap; }
 .feed-h h2 { font-size: 14px; margin: 0; font-weight: 600; }
 .filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .filters button { font-size: 12px; padding: 2px 9px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
@@ -153,7 +198,7 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
 .subc div { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .subc .k { display: inline-block; width: 14px; color: var(--c); }
 .subc .time-link .k { color: var(--faint); }
-.sums { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 8px; margin: 10px 0 6px; }
+.sums { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 8px; margin: 10px 0 6px; }
 .sum-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--c); border-radius: 8px; padding: 9px 12px; position: relative; }
 .sum-card h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
 .sum-card p { margin: 0; font-size: 12.5px; color: var(--ink); white-space: pre-wrap; line-height: 1.5; }
@@ -187,16 +232,27 @@ header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margi
   </div>
   <div class="term-under" id="under"></div>
 
-  <div class="pinned" id="pinned"></div>
-  <div class="board" id="board"></div>
+  <nav class="tabs">
+    <button data-tab="board">Board<span class="n" id="nBoard"></span></button>
+    <button data-tab="activity">Activity<span class="n" id="nAct"></span></button>
+    <span class="kbd">1 · 2</span>
+  </nav>
 
-  <div class="feed-h">
-    <h2>Activity</h2>
-    <div class="filters" id="filters"></div>
-    <div class="spacer"></div>
-    <button class="iconbtn" id="kindBtn"></button>
-  </div>
-  <div id="feed"></div>
+  <section class="view" id="view-board">
+    <div class="pinboard" id="pinboard" data-drop="pinned"><span class="label">Pinned</span><div class="notes" id="notes"></div></div>
+    <div class="lanes" id="lanes"></div>
+  </section>
+
+  <section class="view" id="view-activity">
+    <div class="stats" id="stats"></div>
+    <div class="feed-h">
+      <h2>Activity</h2>
+      <div class="filters" id="filters"></div>
+      <div class="spacer"></div>
+      <button class="iconbtn" id="kindBtn"></button>
+    </div>
+    <div id="feed"></div>
+  </section>
 </div>
 
 <script>
@@ -211,6 +267,7 @@ let feedKind = store.get('feedKind', 'all');
 let feedDays = 3;
 let openDone = new Set();
 let addingIn = null;
+let tab = (location.hash.slice(1) === 'activity' || location.hash.slice(1) === 'board') ? location.hash.slice(1) : store.get('tab', 'board');
 const theme = store.get('theme', null);
 if (theme) document.documentElement.dataset.theme = theme;
 
@@ -262,19 +319,32 @@ function sortTasks(ts) {
     b.pinned - a.pinned || a.id - b.id);
 }
 
-function taskHTML(t, showBucket) {
-  const b = B(t.bucket);
-  return `<div class="task ${t.status}" data-id="${t.id}" style="--c:${b.color}">
-    <button class="check" data-act="check" title="click: done · shift-click: doing"></button>
-    <div class="body">
-      <div class="title" data-act="edit">${esc(t.title)}</div>
-      <div class="chips">${showBucket ? `<span class="chip" style="color:${b.color}">${esc(b.name)}</span>` : ''}${t.status === 'doing' ? '<span class="chip doing">in progress</span>' : ''}${dueChip(t)}</div>
-    </div>
-    <div class="actions">
+const actionsHTML = t => `<div class="actions">
       <button data-act="doing" title="toggle in progress">${t.status === 'doing' ? '❚❚' : '▶'}</button>
       ${t.due ? '' : '<button data-act="due" title="set deadline">◷</button>'}
-      <button class="pinbtn ${t.pinned ? 'on' : ''}" data-act="pin" title="pin">${t.pinned ? '★' : '☆'}</button>
+      <button data-act="pin" title="${t.pinned ? 'unpin' : 'pin to board'}">${t.pinned ? '★' : '☆'}</button>
       <button data-act="del" title="delete">✕</button>
+    </div>`;
+
+function taskHTML(t) {
+  const b = B(t.bucket);
+  return `<div class="task ${t.status}" data-id="${t.id}" draggable="true" style="--c:${b.color}">
+    <button class="check" data-act="check" title="click: done · shift-click: in progress"></button>
+    <div class="body">
+      <div class="title" data-act="edit">${esc(t.title)}</div>
+      <div class="chips">${t.status === 'doing' ? '<span class="chip doing">in progress</span>' : ''}${dueChip(t)}</div>
+    </div>
+    ${actionsHTML(t)}
+  </div>`;
+}
+function noteHTML(t) {
+  const b = B(t.bucket);
+  return `<div class="note ${t.status}" data-id="${t.id}" draggable="true" style="--c:${b.color}">
+    <div class="title" data-act="edit">${esc(t.title)}</div>
+    <div class="foot">
+      <button class="check" data-act="check" title="click: done · shift-click: in progress"></button>
+      <span class="bk">${esc(b.name)}</span>${t.status === 'doing' ? '<span class="chip doing">in progress</span>' : ''}${dueChip(t)}
+      ${actionsHTML(t)}
     </div>
   </div>`;
 }
@@ -285,47 +355,62 @@ function render() {
   const weekMin = Object.values(S.stats).reduce((a, s) => a + s.week_min, 0);
   const weekCommits = Object.values(S.stats).reduce((a, s) => a + s.week_commits, 0);
   $('#meta').textContent = `week ${hrs(weekMin)} · ${weekCommits} commits · scanned ${ago(S.scanned_at)}`;
+  const openCount = S.tasks.filter(t => t.status !== 'done').length;
+  $('#nBoard').textContent = openCount || '';
+  $('#nAct').textContent = hrs(weekMin);
+  document.querySelectorAll('.tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  $('#view-board').classList.toggle('on', tab === 'board');
+  $('#view-activity').classList.toggle('on', tab === 'activity');
+  renderBoard();
+  renderStats();
+  renderFeed();
+}
 
-  // pinned strip
+function renderBoard() {
   const pinned = sortTasks(S.tasks.filter(t => t.pinned && t.status !== 'done'));
-  $('#pinned').innerHTML = pinned.map(t => `<div class="pin-card" style="--c:${B(t.bucket).color}">${taskHTML(t, true)}</div>`).join('');
-
-  // columns
-  const board = $('#board');
-  board.style.setProperty('--cols', S.buckets.length);
-  board.innerHTML = S.buckets.map(b => {
-    const st = S.stats[b.id];
+  $('#notes').innerHTML = pinned.map(noteHTML).join('') ||
+    '<div class="pin-empty">Nothing pinned. Drag a task here, press ☆ on it, or add <b>*</b> when you type it.</div>';
+  const lanes = $('#lanes');
+  lanes.style.setProperty('--cols', S.buckets.length);
+  lanes.innerHTML = S.buckets.map(b => {
     const open = sortTasks(S.tasks.filter(t => t.bucket === b.id && t.status !== 'done' && !t.pinned));
-    const pinnedHere = S.tasks.filter(t => t.bucket === b.id && t.status !== 'done' && t.pinned).length;
+    const pinnedHere = pinned.filter(t => t.bucket === b.id).length;
     const done = S.tasks.filter(t => t.bucket === b.id && t.status === 'done').sort((x, y) => y.done_at - x.done_at);
+    return `<section class="lane" style="--c:${b.color}" data-bucket="${b.id}" data-drop="${b.id}">
+      <div class="lane-h"><span class="dot"></span><span class="name">${esc(b.name)}</span>
+        <span class="count">${open.length || ''}${pinnedHere ? ` +${pinnedHere}★` : ''}</span>
+        <button class="plus" data-act="col-add" title="add task">+</button></div>
+      ${addingIn === b.id ? `<input class="col-add" data-bucket="${b.id}" placeholder="New ${esc(b.name)} task…  !due fri 18:00  *">` : ''}
+      ${open.map(taskHTML).join('') || (addingIn === b.id ? '' : '<div class="empty">No open tasks</div>')}
+      ${done.length ? `<button class="done-toggle" data-act="toggle-done">${openDone.has(b.id) ? '▾' : '▸'} ${done.length} done this week</button>` : ''}
+      ${openDone.has(b.id) ? done.map(taskHTML).join('') : ''}
+    </section>`;
+  }).join('');
+  if (addingIn) { const i = lanes.querySelector('.col-add'); i && i.focus(); }
+}
+
+function renderStats() {
+  const el = $('#stats');
+  el.style.setProperty('--cols', S.buckets.length);
+  el.innerHTML = S.buckets.map(b => {
+    const st = S.stats[b.id];
     const max = Math.max(30, ...st.daily.map(d => d.min));
     const idleDays = st.last ? (Date.now() / 1000 - st.last) / 86400 : 999;
     const spark = st.daily.map(d => {
-      const h = d.min ? Math.max(8, d.min / max * 100) : 8;
+      const h = d.min ? Math.max(8, d.min / max * 100) : 6;
       return `<i class="${d.min || d.commits ? '' : 'zero'}" style="height:${h}%" title="${d.day}: ${hrs(d.min)} · ${d.commits} commits"></i>`;
     }).join('');
     const projects = st.projects.map(p => `<span><b>${esc(p.project)}</b> ${p.minutes ? hrs(p.minutes) : ''}${p.commits ? ' · ' + p.commits + '⎇' : ''}</span>`).join('');
-    return `<section class="col" style="--c:${b.color}" data-bucket="${b.id}">
-      <div class="col-h"><span class="dot"></span><span class="name">${esc(b.name)}</span>
-        <span class="count">${open.length + pinnedHere || ''}</span>
-        <button class="plus" data-act="col-add" title="add task">+</button></div>
-      <div class="tasks">
-        ${addingIn === b.id ? `<input class="col-add" data-bucket="${b.id}" placeholder="New ${esc(b.name)} task…  !due fri 18:00  *">` : ''}
-        ${open.map(t => taskHTML(t)).join('') || (addingIn === b.id ? '' : `<div class="empty">${pinnedHere ? pinnedHere + ' pinned above' : 'Nothing here'}</div>`)}
-        ${done.length ? `<button class="done-toggle" data-act="toggle-done">${openDone.has(b.id) ? '▾' : '▸'} ${done.length} done this week</button>` : ''}
-        ${openDone.has(b.id) ? done.map(t => taskHTML(t)).join('') : ''}
-      </div>
-      <div class="col-foot">
-      <div class="projects">${projects || '<span>no activity this week</span>'}</div>
-      <div class="col-stats"><span title="Claude session time this week">${hrs(st.week_min)}</span><span title="commits this week (${st.week_claude_commits} made in Claude sessions)">${st.week_commits} ⎇${st.week_commits ? ` <span style="color:var(--faint)">${Math.round(st.week_claude_commits / st.week_commits * 100)}%✦</span>` : ''}</span>
-        <span class="${idleDays > 5 && idleDays < 999 ? 'idle' : ''}" title="last activity">${ago(st.last)}</span></div>
+    const pct = st.week_commits ? Math.round(st.week_claude_commits / st.week_commits * 100) : null;
+    return `<div class="stat ${feedFilter === b.id ? 'on' : ''}" style="--c:${b.color}" data-f="${b.id}" title="filter activity by ${esc(b.name)}">
+      <div class="stat-h"><span class="dot"></span><span class="name">${esc(b.name)}</span>
+        <span class="ago ${idleDays > 5 && idleDays < 999 ? 'idle' : ''}" title="last activity">${ago(st.last)}</span></div>
+      <div class="nums"><span class="big">${hrs(st.week_min)}</span>
+        <span class="small" title="${st.week_claude_commits} of ${st.week_commits} commits made in Claude sessions">${st.week_commits} ⎇${pct !== null ? ` · ${pct}%✦` : ''}</span></div>
       <div class="spark">${spark}</div>
-      </div>
-    </section>`;
+      <div class="projects">${projects || '<span>no activity this week</span>'}</div>
+    </div>`;
   }).join('');
-  if (addingIn) { const i = board.querySelector('.col-add'); i && i.focus(); }
-
-  renderFeed();
 }
 
 function renderFeed() {
@@ -635,7 +720,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-act]');
   const f = e.target.closest('[data-f]');
-  if (f) { feedFilter = f.dataset.f; store.set('feedFilter', feedFilter); return renderFeed(); }
+  if (f) { feedFilter = feedFilter === f.dataset.f && f.dataset.f !== 'all' ? 'all' : f.dataset.f; store.set('feedFilter', feedFilter); renderStats(); return renderFeed(); }
   const sb = e.target.closest('[data-sum]');
   if (sb) {
     sb.textContent = '✦ summarizing…'; sb.disabled = true;
@@ -688,6 +773,43 @@ document.addEventListener('keydown', async e => {
     await api('POST', '/api/tasks', { text: e.target.value, bucket: e.target.dataset.bucket });
     load();
   }
+});
+
+function setTab(t) { tab = t; store.set('tab', t); window.history.replaceState(null, '', '#' + t); render(); }
+document.querySelectorAll('.tabs [data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+document.addEventListener('keydown', e => {
+  const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable;
+  if (!typing && !e.ctrlKey && !e.metaKey && (e.key === '1' || e.key === '2')) setTab(e.key === '1' ? 'board' : 'activity');
+});
+
+// drag a task: onto a lane = move bucket (and unpin), onto the pinboard = pin
+document.addEventListener('dragstart', e => {
+  const c = e.target.closest?.('[data-id]');
+  if (!c) return;
+  e.dataTransfer.setData('text/plain', c.dataset.id);
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => c.classList.add('dragging'), 0);
+});
+document.addEventListener('dragend', () => document.querySelectorAll('.dragging, .drop-over').forEach(x => x.classList.remove('dragging', 'drop-over')));
+document.addEventListener('dragover', e => {
+  const z = e.target.closest?.('[data-drop]');
+  if (!z) return;
+  e.preventDefault();
+  document.querySelectorAll('.drop-over').forEach(x => x !== z && x.classList.remove('drop-over'));
+  z.classList.add('drop-over');
+});
+document.addEventListener('drop', e => {
+  const z = e.target.closest?.('[data-drop]');
+  if (!z) return;
+  e.preventDefault();
+  z.classList.remove('drop-over');
+  const id = +e.dataTransfer.getData('text/plain');
+  const t = S.tasks.find(x => x.id === id);
+  if (!t) return;
+  const f = {};
+  if (z.dataset.drop === 'pinned') { if (!t.pinned) f.pinned = true; }
+  else { if (t.bucket !== z.dataset.drop) f.bucket = z.dataset.drop; if (t.pinned) f.pinned = false; }
+  Object.keys(f).length ? patch(id, f) : load();
 });
 
 $('#kindBtn').onclick = () => { feedKind = { all: 'session', session: 'commit', commit: 'all' }[feedKind]; store.set('feedKind', feedKind); renderFeed(); };
