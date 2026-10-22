@@ -4,37 +4,41 @@
   "idle_gap_minutes": 15,
   "history_days": 120,
   "author_emails": ["aidyn.fatikh@gmail.com"],
-  "repo_roots": ["~/forte", "~/coursework", "~/projects"],
+
+  "_repo_roots": "Folders searched (3 levels deep) for git repos to read commits from.",
+  "repo_roots": ["~/forte", "~/coursework", "~/projects", "~/halyk", "~/issai", "~/ML", "~/lpcv", "~/nfactorial"],
+
+  "_buckets": "A project is matched by its GitHub remote first ('owner/repo', * wildcards ok). 'paths' is only a fallback for folders that are not git repos or whose remote matches no rule.",
   "buckets": [
     {
       "id": "forte", "name": "Forte", "color": "#e5484d",
       "aliases": ["f"],
-      "paths": ["~/forte"],
-      "orgs": []
+      "repos": ["abylsliam44/*", "temaatasu/forte-knowledge", "aidynfatikh/chat-analytics"],
+      "paths": ["~/forte"]
     },
     {
       "id": "uni", "name": "University", "color": "#3e7bfa",
       "aliases": ["u", "univ", "course"],
-      "paths": ["~/coursework"],
-      "orgs": ["nu-datasci"]
+      "repos": ["nu-datasci/*", "SuWh1/CSCI-299-*"],
+      "paths": ["~/coursework"]
     },
     {
       "id": "arqamed", "name": "ArqaMed", "color": "#12a594",
       "aliases": ["a", "arq", "nabi"],
-      "paths": ["~/projects/ArqaMed", "~/projects/salesbot"],
-      "orgs": ["NABIPRO-Labs"]
+      "repos": ["NABIPRO-Labs/*", "aidynfatikh/nabi-sales"],
+      "paths": []
     },
     {
       "id": "zap", "name": "ZAP", "color": "#f5a524",
       "aliases": ["z"],
-      "paths": ["~/projects/ZAP", "~/projects/ZAP-web"],
-      "orgs": []
+      "repos": ["SuWh1/ZAP"],
+      "paths": []
     },
     {
       "id": "other", "name": "Other", "color": "#8b8d98",
       "aliases": ["o", "personal", "p"],
-      "paths": [],
-      "orgs": []
+      "repos": [],
+      "paths": []
     }
   ],
   "default_bucket": "other",

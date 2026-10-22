@@ -11,6 +11,7 @@ buckets (Forte, Uni, ArqaMed, ZAP, ...). Standard library only.
   unison done|pin|doing|rm <id>
   unison hook-session-start     Claude Code SessionStart hook (reads JSON on stdin)
 """
+import fnmatch
 import json
 import os
 import re
@@ -36,7 +37,7 @@ def load_config():
     cfg = json.loads((ROOT / "config.json").read_text())
     for b in cfg["buckets"]:
         b["paths"] = [os.path.expanduser(p).rstrip("/") for p in b.get("paths", [])]
-        b["orgs"] = [o.lower() for o in b.get("orgs", [])]
+        b["repos"] = [r.lower() for r in b.get("repos", [])]
     cfg["repo_roots"] = [os.path.expanduser(p) for p in cfg["repo_roots"]]
     cfg["author_emails"] = {e.lower() for e in cfg.get("author_emails", [])}
     return cfg
@@ -103,26 +104,39 @@ def find_repo(path):
     return (None, "")
 
 
+def remote_slug(url):
+    """'https://github.com/Owner/Repo.git' -> 'Owner/Repo' (also ssh and other hosts)."""
+    m = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?/?$", url or "")
+    return m.group(1) if m else ""
+
+
 def classify(path):
-    """Map a directory to (bucket_id, project_name)."""
+    """Map a directory to (bucket_id, project_name).
+
+    1. GitHub remote matches a bucket's 'repos' rule  -> that bucket, project = repo name
+    2. folder is under a bucket's 'paths'             -> that bucket
+    3. otherwise                                      -> default bucket
+    """
     path = os.path.abspath(os.path.expanduser(path or HOME)).rstrip("/")
     repo, url = find_repo(path)
+    slug = remote_slug(url)
 
-    best, best_root = None, None
+    bucket = None
+    if slug:
+        for b in CFG["buckets"]:
+            if any(fnmatch.fnmatchcase(slug.lower(), r) for r in b["repos"]):
+                bucket = b["id"]
+                break
+    best_root, path_bucket = None, None
     for b in CFG["buckets"]:
         for p in b["paths"]:
             if (path == p or path.startswith(p + "/")) and (best_root is None or len(p) > len(best_root)):
-                best, best_root = b["id"], p
-    if best is None and url:
-        m = re.search(r"github\.com[:/]([^/]+)/", url)
-        org = m.group(1).lower() if m else ""
-        for b in CFG["buckets"]:
-            if org and org in b["orgs"]:
-                best = b["id"]
-                break
-    bucket = best or CFG["default_bucket"]
+                best_root, path_bucket = p, b["id"]
+    bucket = bucket or path_bucket or CFG["default_bucket"]
 
-    if repo:
+    if slug:
+        project = slug.split("/")[1]          # worktrees/clones of one repo share a name
+    elif repo:
         project = os.path.basename(repo)
     elif best_root and path != best_root:
         project = path[len(best_root) + 1:].split("/")[0]
@@ -371,25 +385,38 @@ def scan_sessions(con):
 
 # ---------------------------------------------------------------- scanning: git
 
-def find_repos():
+SKIP_DIRS = {"node_modules", "venv", ".venv", "__pycache__", "dist", "build", "site-packages"}
+
+
+def find_repos(max_depth=3):
     repos = []
+
+    def walk(d, depth):
+        if (d / ".git").exists():
+            repos.append(d)
+            return
+        if depth >= max_depth:
+            return
+        try:
+            for c in sorted(d.iterdir()):
+                if c.is_dir() and not c.is_symlink() and not c.name.startswith(".") and c.name not in SKIP_DIRS:
+                    walk(c, depth + 1)
+        except (PermissionError, OSError):
+            pass
+
     for root in CFG["repo_roots"]:
-        rp = Path(root)
-        if not rp.is_dir():
-            continue
-        for d in sorted(rp.iterdir()):
-            if not d.is_dir() or d.name.startswith(".") or d.name == "node_modules":
-                continue
-            if (d / ".git").exists():
-                repos.append(d)
-                continue
-            try:
-                for d2 in sorted(d.iterdir()):
-                    if d2.is_dir() and (d2 / ".git").exists():
-                        repos.append(d2)
-            except PermissionError:
-                pass
+        if Path(root).is_dir():
+            walk(Path(root), 0)
     return repos
+
+
+def reclassify(con):
+    """Re-apply bucket rules to stored sessions/commits (cheap; picks up config edits)."""
+    for (cwd,) in con.execute("SELECT DISTINCT cwd FROM sessions").fetchall():
+        con.execute("UPDATE sessions SET bucket=?, project=? WHERE cwd=?", (*classify(cwd), cwd))
+    for (repo,) in con.execute("SELECT DISTINCT repo FROM commits").fetchall():
+        con.execute("UPDATE commits SET bucket=?, project=? WHERE repo=?", (*classify(repo), repo))
+    con.commit()
 
 
 def scan_commits(con):
@@ -425,8 +452,10 @@ def scan():
     with SCAN_LOCK:
         con = db()
         try:
+            _repo_cache.clear()
             s = scan_sessions(con)
             c = scan_commits(con)
+            reclassify(con)
             con.execute("INSERT OR REPLACE INTO meta VALUES ('scanned_at', ?)", (str(time.time()),))
             con.commit()
             return {"sessions": s, "commits": c}
